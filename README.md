@@ -11,26 +11,28 @@ backend, written in Rust on Axum and Tokio.
 
 ## Status
 
-Under construction. The upstream connectivity path is complete and verified; the
-HTTP surface is not.
+The gateway works end to end. Everything in the table below has been exercised
+against live accounts over HTTP; the one remaining piece is the OpenAI Responses
+API, which is phase two of the plan.
 
 | Area | State |
 |---|---|
 | Wire identity, envelope, metadata | done |
-| Transport (`reqwest`, HTTP/1.1) | done, validated offline |
+| Transport (`reqwest`, HTTP/1.1) | done, validated against a live account |
 | OAuth refresh, manual token intake | done |
 | Browser OAuth login (PKCE) | done |
 | Project discovery (`loadCodeAssist` / `onboardUser`) | done |
 | Account pool: model, storage, locking | done |
-| CLI: `account`, `probe`, `config` | done |
+| Account routing, retry, backoff | done, live-validated across two accounts |
 | Model registry, tier routing | done |
 | OpenAI → IR request translation | done |
 | JSON Schema sanitisation | done |
-| Upstream SSE parsing → OpenAI chunks | **not started** |
-| Thinking signature cache | **not started** |
-| Account routing, retry, backoff | done, live-validated across two accounts |
-| `serve`, `/v1/chat/completions` | **not started** |
-| Metrics, audit log, dashboard | **not started** |
+| Upstream SSE parsing → OpenAI chunks | done, live-validated |
+| Thinking signature cache | done; replay measured as optional on Gemini |
+| `serve`, `/v1/chat/completions` | done, live-validated |
+| Metrics, audit log, dashboard | done, live-validated |
+| CLI: `account`, `probe`, `config`, `serve` | done |
+| OpenAI Responses API (`/v1/responses`) | **not started** |
 
 Per-milestone detail, decisions, and what was verified when is in
 [docs/progress.md](docs/progress.md).
@@ -123,6 +125,16 @@ src/
     dispatch.rs           the account/endpoint retry loop
     retry.rs              retry decisions, as a pure function
     mod.rs                request execution and probe
+  observ/
+    metrics.rs            Prometheus metrics and their label bounds
+    audit.rs              the SQLite request log
+  server/
+    mod.rs                router, authentication, graceful shutdown
+    dashboard.html        the operator UI, embedded
+    chat.rs               /v1/chat/completions
+    models.rs             /v1/models
+    admin.rs              /health, /account-limits, /refresh-token
+    error.rs              upstream failures -> OpenAI error envelopes
 ```
 
 ## Configuring an account

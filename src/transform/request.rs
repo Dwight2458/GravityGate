@@ -68,6 +68,17 @@ pub enum TranslateError {
 
     #[error("no model was resolved")]
     NoModel,
+
+    /// Claude refuses a forced tool choice while thinking is enabled.
+    ///
+    /// Found by a live request: the upstream answers
+    /// "Thinking may not be enabled when tool_choice forces tool use." Catching
+    /// it here turns an opaque upstream rejection into a message a client can
+    /// act on, and avoids spending a round trip to learn it.
+    #[error(
+        "tool_choice forcing tool use is incompatible with thinking on {family} models; either send tool_choice: \"auto\" or disable thinking"
+    )]
+    IncompatibleToolChoice { family: &'static str },
 }
 
 /// Non-fatal observations from a translation, worth logging.
@@ -174,6 +185,22 @@ fn to_ir_inner(
 
     let tools = convert_tools(request.tools.as_deref(), &mut notes);
     let tool_config = tools.as_ref().and_then(|_| convert_tool_choice(request, resolved));
+
+    // Claude cannot be told to think and to *force* a tool call at once. The
+    // constraint is specifically about forcing: VALIDATED, the default for these
+    // models, is compatible with thinking and is what every ordinary Claude
+    // tool request uses. Rejecting that too would refuse most traffic.
+    //
+    // Saying so beats silently picking one of the two, because a client that
+    // loses its tool call has no way to tell why.
+    if resolved.family == ModelFamily::Claude
+        && resolved.thinking_enabled
+        && tool_config
+            .as_ref()
+            .is_some_and(|config| config.function_calling_config.mode == FORCED_MODE)
+    {
+        return Err(TranslateError::IncompatibleToolChoice { family: "Claude" });
+    }
 
     let generation_config = build_generation_config(request, resolved);
 
@@ -581,7 +608,7 @@ fn convert_tool_choice(
         None => (default_mode(resolved).to_string(), None),
         Some(Value::String(choice)) => match choice.as_str() {
             "none" => ("NONE".to_string(), None),
-            "auto" => ("AUTO".to_string(), None),
+            "auto" => (AUTO_MODE.to_string(), None),
             "required" | "any" => ("ANY".to_string(), None),
             _ => (default_mode(resolved).to_string(), None),
         },
@@ -608,11 +635,18 @@ fn convert_tool_choice(
     })
 }
 
+/// The permissive tool-calling mode, which is compatible with thinking.
+const AUTO_MODE: &str = "AUTO";
+
+/// The mode that requires the model to call a tool. Incompatible with thinking
+/// on Claude, unlike `AUTO` and `VALIDATED`.
+const FORCED_MODE: &str = "ANY";
+
 /// Claude targets want validated tool calling; Gemini's default is fine.
 fn default_mode(resolved: &ResolvedModel) -> &'static str {
     match resolved.family {
         ModelFamily::Claude => "VALIDATED",
-        _ => "AUTO",
+        _ => AUTO_MODE,
     }
 }
 
@@ -1065,6 +1099,71 @@ mod tests {
             ir.tool_config.unwrap().function_calling_config.mode,
             "VALIDATED"
         );
+    }
+
+    #[test]
+    fn claude_rejects_a_forced_tool_choice_with_thinking_enabled() {
+        // A live request taught us this: the upstream answers "Thinking may not
+        // be enabled when tool_choice forces tool use." Catching it here saves a
+        // round trip and produces a message the client can act on.
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "tool_choice": "required",
+            "tools": [{ "type": "function", "function": {
+                "name": "f",
+                "parameters": { "type": "object", "properties": { "a": { "type": "string" } } }
+            }}]
+        }))
+        .unwrap();
+
+        let resolved = model("claude-opus-4-6-thinking");
+        let result = to_ir(&request, &resolved, &Config::default());
+        assert!(
+            matches!(
+                result,
+                Err(TranslateError::IncompatibleToolChoice { .. })
+            ),
+            "got {result:?}"
+        );
+    }
+
+    #[test]
+    fn claude_allows_a_forced_tool_choice_when_thinking_is_off() {
+        // The constraint is about thinking, not about tool choice.
+        let request: ChatCompletionRequest = serde_json::from_value(json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "tool_choice": "required",
+            "thinking": { "type": "disabled" },
+            "tools": [{ "type": "function", "function": {
+                "name": "f",
+                "parameters": { "type": "object", "properties": { "a": { "type": "string" } } }
+            }}]
+        }))
+        .unwrap();
+
+        // Resolution has to see the request, or the `thinking: disabled` in the
+        // body is invisible and the model still looks thinking-enabled.
+        let config = Config::default();
+        let resolved = resolve_for(&request, &config).unwrap();
+        assert!(!resolved.thinking_enabled);
+        assert!(to_ir(&request, &resolved, &config).is_ok());
+    }
+
+    #[test]
+    fn gemini_allows_a_forced_tool_choice_with_thinking() {
+        // Gemini has no such constraint, so the check must not be family-blind.
+        let (ir, _) = translate(json!({
+            "model": "m",
+            "messages": [{ "role": "user", "content": "hi" }],
+            "tool_choice": "required",
+            "tools": [{ "type": "function", "function": {
+                "name": "f",
+                "parameters": { "type": "object", "properties": { "a": { "type": "string" } } }
+            }}]
+        }));
+        assert_eq!(ir.tool_config.unwrap().function_calling_config.mode, "ANY");
     }
 
     #[test]

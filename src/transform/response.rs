@@ -354,6 +354,102 @@ pub fn to_completion(
     }
 }
 
+/// Accumulates a multi-event response into one completion.
+///
+/// The buffered counterpart of [`StreamTranslator`], and it exists for the same
+/// reason: one logical response arrives as several events. Parts accumulate
+/// across them while usage, finish reason, and model version are newest-wins, so
+/// that reading only the first event or only the last both give a wrong answer.
+///
+/// Classification is shared with the streaming path, which is what stops the two
+/// from disagreeing about whether a signature-only part is content.
+#[derive(Debug, Default)]
+pub struct ResponseAccumulator {
+    parts: Vec<Part>,
+    usage: Option<IrUsage>,
+    finish_reason: Option<String>,
+    model_version: Option<String>,
+    response_id: Option<String>,
+}
+
+impl ResponseAccumulator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Absorb one upstream event.
+    pub fn absorb(&mut self, response: &GenerateContentResponse) {
+        if let Some(usage) = &response.usage_metadata
+            && usage.is_present()
+        {
+            self.usage = Some(usage.clone());
+        }
+        if let Some(version) = &response.model_version {
+            self.model_version = Some(version.clone());
+        }
+        if let Some(id) = &response.response_id {
+            self.response_id = Some(id.clone());
+        }
+
+        for candidate in &response.candidates {
+            if let Some(reason) = &candidate.finish_reason {
+                self.finish_reason = Some(reason.clone());
+            }
+            if let Some(content) = &candidate.content {
+                self.parts.extend(content.parts.iter().cloned());
+            }
+        }
+    }
+
+    /// Whether anything a client would see has arrived.
+    ///
+    /// An empty-text part carrying a signature is not client-visible content,
+    /// which is the distinction the empty-response retry depends on: a stream of
+    /// nothing but signatures produced no answer.
+    pub fn has_client_content(&self) -> bool {
+        self.parts.iter().any(|part| match classify(part) {
+            PartKind::Text(text) | PartKind::Thinking(text) => !text.trim().is_empty(),
+            PartKind::ToolCall { .. } => true,
+            PartKind::SignatureOnly | PartKind::Unsupported | PartKind::Empty => false,
+        })
+    }
+
+    pub fn parts(&self) -> &[Part] {
+        &self.parts
+    }
+
+    pub fn usage(&self) -> Option<&IrUsage> {
+        self.usage.as_ref()
+    }
+
+    pub fn finish_reason(&self) -> Option<&str> {
+        self.finish_reason.as_deref()
+    }
+
+    pub fn model_version(&self) -> Option<&str> {
+        self.model_version.as_deref()
+    }
+
+    pub fn response_id(&self) -> Option<&str> {
+        self.response_id.as_deref()
+    }
+
+    /// Build the client-facing completion, capturing signatures on the way.
+    pub fn into_completion(
+        self,
+        options: &ResponseOptions,
+        cache: Option<&SignatureCache>,
+    ) -> ChatCompletion {
+        to_completion(
+            &self.parts,
+            self.usage.as_ref(),
+            self.finish_reason.as_deref(),
+            options,
+            cache,
+        )
+    }
+}
+
 /// Streaming translator.
 ///
 /// Feed it each decoded upstream payload; it returns the chunks to send. The
@@ -501,6 +597,11 @@ impl StreamTranslator {
     /// An empty stream is a failure worth retrying, not a valid empty answer.
     pub fn emitted_content(&self) -> bool {
         self.sent_role
+    }
+
+    /// Token usage seen so far, for recording once the stream ends.
+    pub fn usage(&self) -> Option<&IrUsage> {
+        self.usage.as_ref()
     }
 
     fn chunk(&mut self, delta: ChunkDelta, finish_reason: Option<String>) -> ChatCompletionChunk {
@@ -1446,6 +1547,135 @@ mod tests {
         let usage = chunks.last().unwrap().usage.as_ref().unwrap();
         assert_eq!(usage.completion_tokens, 13);
         assert_eq!(usage.total_tokens, 54);
+    }
+
+    #[test]
+    fn the_accumulator_gathers_parts_across_events() {
+        let mut accumulator = ResponseAccumulator::new();
+
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{ "content": { "parts": [{ "text": "hello" }] } }],
+                "usageMetadata": { "promptTokenCount": 5 }
+            }))
+            .unwrap(),
+        );
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{
+                    "content": { "parts": [{ "text": "", "thoughtSignature": "S".repeat(80) }] },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": { "promptTokenCount": 5, "candidatesTokenCount": 3 }
+            }))
+            .unwrap(),
+        );
+
+        assert_eq!(accumulator.parts().len(), 2, "both events contributed");
+        assert_eq!(accumulator.finish_reason(), Some("STOP"));
+        // Newest wins for usage, so the complete counts are the ones kept.
+        assert_eq!(accumulator.usage().unwrap().candidates_tokens(), 3);
+        assert!(accumulator.has_client_content());
+    }
+
+    #[test]
+    fn a_signature_only_response_has_no_client_content() {
+        // The distinction the empty-response retry depends on: a stream of
+        // nothing but signatures produced no answer.
+        let mut accumulator = ResponseAccumulator::new();
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{ "content": { "parts": [
+                    { "text": "", "thoughtSignature": "S".repeat(80) },
+                    { "text": "" }
+                ] } }]
+            }))
+            .unwrap(),
+        );
+        assert!(!accumulator.has_client_content());
+    }
+
+    #[test]
+    fn whitespace_only_content_does_not_count_as_an_answer() {
+        let mut accumulator = ResponseAccumulator::new();
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{ "content": { "parts": [{ "text": "   " }] } }]
+            }))
+            .unwrap(),
+        );
+        assert!(!accumulator.has_client_content());
+    }
+
+    #[test]
+    fn a_tool_call_counts_as_client_content() {
+        let mut accumulator = ResponseAccumulator::new();
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{ "content": { "parts": [
+                    { "functionCall": { "name": "f", "args": {} } }
+                ] } }]
+            }))
+            .unwrap(),
+        );
+        assert!(accumulator.has_client_content());
+    }
+
+    #[test]
+    fn an_empty_accumulator_builds_a_valid_empty_completion() {
+        let completion = ResponseAccumulator::new().into_completion(&options(), None);
+        assert_eq!(completion.choices[0].message.content.as_deref(), Some(""));
+        assert_eq!(completion.choices[0].finish_reason.as_deref(), Some("stop"));
+    }
+
+    #[test]
+    fn the_accumulator_matches_what_one_event_would_produce() {
+        // The buffered and direct paths must agree; this is the closest thing to
+        // a proof that they do.
+        let mut accumulator = ResponseAccumulator::new();
+        accumulator.absorb(
+            &serde_json::from_value(json!({
+                "candidates": [{
+                    "content": { "parts": [
+                        { "text": "thinking", "thought": true },
+                        { "text": "answer" }
+                    ] },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": { "promptTokenCount": 4, "candidatesTokenCount": 2 }
+            }))
+            .unwrap(),
+        );
+
+        let accumulated = accumulator.into_completion(&options(), None);
+        let direct = to_completion(
+            &[Part::thought_text("thinking"), Part::text("answer")],
+            Some(&IrUsage {
+                prompt_token_count: 4,
+                candidates_token_count: Some(2),
+                ..Default::default()
+            }),
+            Some("STOP"),
+            &options(),
+            None,
+        );
+
+        assert_eq!(
+            accumulated.choices[0].message.content,
+            direct.choices[0].message.content
+        );
+        assert_eq!(
+            accumulated.choices[0].message.reasoning_content,
+            direct.choices[0].message.reasoning_content
+        );
+        assert_eq!(
+            accumulated.choices[0].finish_reason,
+            direct.choices[0].finish_reason
+        );
+        assert_eq!(
+            accumulated.usage.unwrap().completion_tokens,
+            direct.usage.unwrap().completion_tokens
+        );
     }
 
     #[test]

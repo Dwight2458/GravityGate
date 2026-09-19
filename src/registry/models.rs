@@ -404,6 +404,27 @@ pub fn lookup(id: &str) -> Option<&'static ModelSpec> {
     MODELS.iter().find(|spec| spec.id == lowered)
 }
 
+/// The catalogue entry a *wire* model name belongs to.
+///
+/// Wire models are what actually reaches the upstream — `gemini-3.8-flash-medium`
+/// rather than `gemini-3.8-flash` — so a lookup by base name misses nearly every
+/// real request. Mapping back to the base id collapses tier variants onto one
+/// entry, which is also what a dashboard wants: traffic by model, not by model
+/// and tier.
+pub fn base_for_wire(wire_model: &str) -> Option<&'static str> {
+    let lowered = wire_model.to_ascii_lowercase();
+    MODELS.iter().find_map(|spec| {
+        if spec.id == lowered {
+            return Some(spec.id);
+        }
+        let routes = spec.routes?;
+        [ThinkingTier::Minimal, ThinkingTier::Low, ThinkingTier::Medium, ThinkingTier::High]
+            .into_iter()
+            .any(|tier| routes.route(tier).0.wire_model == lowered)
+            .then_some(spec.id)
+    })
+}
+
 /// A resolved model ready for the wire.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedModel {
@@ -500,6 +521,44 @@ mod tests {
         assert!(lookup("gemini-3.8-flash").is_some());
         assert!(lookup("GEMINI-3.8-FLASH").is_some());
         assert!(lookup("nonexistent-model").is_none());
+    }
+
+    #[test]
+    fn a_wire_model_maps_back_to_its_catalogue_entry() {
+        assert_eq!(base_for_wire("gemini-3.8-flash-medium"), Some("gemini-3.8-flash"));
+        assert_eq!(base_for_wire("gemini-3.8-flash-high"), Some("gemini-3.8-flash"));
+        assert_eq!(base_for_wire("gemini-3.1-pro-low"), Some("gemini-3.1-pro"));
+        assert_eq!(base_for_wire("gemini-pro-agent"), Some("gemini-3.1-pro"));
+    }
+
+    #[test]
+    fn a_base_name_maps_to_itself() {
+        assert_eq!(base_for_wire("gemini-3.8-flash"), Some("gemini-3.8-flash"));
+    }
+
+    #[test]
+    fn an_unknown_wire_model_maps_to_nothing() {
+        assert_eq!(base_for_wire("gemini-9.9-ultra"), None);
+        assert_eq!(base_for_wire(""), None);
+    }
+
+    #[test]
+    fn every_route_maps_back_to_its_own_entry() {
+        // Guards against two catalogue entries claiming the same wire model.
+        for spec in MODELS.iter().filter(|spec| spec.is_tiered()) {
+            for tier in [ThinkingTier::Low, ThinkingTier::Medium, ThinkingTier::High] {
+                let Some(route) = spec.route(tier) else {
+                    continue;
+                };
+                assert_eq!(
+                    base_for_wire(route.wire_model),
+                    Some(spec.id),
+                    "{} route {tier:?} -> {} mapped elsewhere",
+                    spec.id,
+                    route.wire_model
+                );
+            }
+        }
     }
 
     #[test]

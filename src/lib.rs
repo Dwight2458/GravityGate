@@ -17,7 +17,9 @@
 pub mod accounts;
 pub mod config;
 pub mod engine;
+pub mod observ;
 pub mod oauth;
 pub mod registry;
+pub mod server;
 pub mod transform;
 pub mod upstream;

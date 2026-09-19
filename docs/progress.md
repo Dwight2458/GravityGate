@@ -4,7 +4,7 @@ Running record of what is built, what was verified, and what is next. Updated as
 each milestone lands. The requirements plan this executes against is the approved
 plan from the kickoff; this file is the state of play.
 
-Last updated: after closing M2 against live accounts.
+Last updated: after adding observability (M6).
 
 ## At a glance
 
@@ -15,8 +15,8 @@ Last updated: after closing M2 against live accounts.
 | M2 | Account pool and routing | **done**, live-validated across two accounts |
 | M3 | Streaming, thinking, tool calls | **done** — both paths, live-validated |
 | M4 | OAuth browser login | **done** |
-| M5 | HTTP surface (`serve`, `/v1/chat/completions`) | not started |
-| M6 | Observability | not started |
+| M5 | HTTP surface (`serve`, `/v1/chat/completions`) | **done**, live-validated |
+| M6 | Observability | **done**, live-validated in a browser |
 | M7 | OpenAI Responses (phase two) | not started |
 
 ## What runs today
@@ -32,9 +32,29 @@ gravitygate probe                    # one real upstream request, fully reported
 gravitygate probe --repeat 4         # routing across several requests in one process
 gravitygate probe --tool             # force a tool call, exercising the tool path
 gravitygate config path | show | init
+
+gravitygate serve                    # the gateway itself, on 127.0.0.1:8080
 ```
 
-`serve` is a deliberate stub that explains what is missing.
+Open <http://127.0.0.1:8080/> for the dashboard.
+
+## What the gateway serves
+
+| Route | |
+|---|---|
+| `POST /v1/chat/completions` | OpenAI-compatible, streaming and buffered |
+| `GET /v1/models` | 18 entries: base names plus genuinely distinct tier variants |
+| `GET /health` | per-account condition, with reset timers and verification URLs |
+| `GET /account-limits` | quota matrix |
+| `POST /refresh-token` | drops the in-memory caches |
+| `GET /metrics` | Prometheus text exposition |
+| `GET /api/stats`, `/api/stats/accounts` | aggregates over the last hour |
+| `GET /api/requests?limit=N` | the recent request log |
+| `GET /` | the dashboard |
+
+Client auth is optional and off by default, which suits a loopback deployment.
+Set `GG_API_KEYS` or `server.api_keys` and the gateway requires
+`Authorization: Bearer` or `x-api-key`; comparison is constant-time.
 
 ## M4 — OAuth login
 
@@ -376,9 +396,141 @@ No live rate limit was induced, so the 429 path is covered by unit tests only.
 Forcing one would mean deliberately exhausting an account, which is not worth
 doing to a working account.
 
+## M5 — HTTP surface
+
+Added `src/server/`: `mod.rs` (router, auth, shutdown), `chat.rs`, `models.rs`,
+`admin.rs`, `error.rs`.
+
+### The prelude
+
+The interesting part is that the handler reads upstream events *before*
+committing to a response. That buys two properties that are otherwise
+unobtainable:
+
+- **An empty response can be retried.** A stream that produces only signatures
+  and finish reasons is a failure, and catching it is only possible while the
+  response head is still unwritten. Commit first and the client gets a 200 with
+  nothing in it — indistinguishable from a model that had nothing to say.
+- **A transport failure is still a real HTTP status.** Because the head is
+  inspected first, an upstream 429 becomes a client 429 with `Retry-After`
+  rather than a stream that breaks after its headers.
+
+The cost is a short delay before the first byte, bounded by an event count and a
+deadline. Both bounds are checked *after* absorbing each chunk rather than at the
+top of the loop, because one chunk can carry many events.
+
+### Verified live, over HTTP
+
+| | |
+|---|---|
+| buffered completion | 200, `content: "pong"`, usage with cached and reasoning token detail |
+| streaming | role announced once, content delta, finish chunk, usage chunk, `[DONE]` |
+| tool call | `get_weather({"city":"Paris"})` with the upstream id preserved, `finish_reason: tool_calls` |
+| two-turn tool loop | turn 1 returns the call, turn 2 replays it with its result and answers |
+| auth | 401 without a key, 401 with the wrong key, 200 with either configured key via either header |
+| error paths | 404 fallback and an unresolvable model both return the OpenAI envelope |
+
+### What live traffic corrected, once more
+
+**Claude refuses a forced tool choice while thinking is enabled.** A request with
+`tool_choice: "required"` came back as *"Thinking may not be enabled when
+tool_choice forces tool use."* — a constraint none of the reference projects
+document. The gateway now catches the combination before spending a round trip
+and returns a message naming both ways out.
+
+The first attempt at that check was wrong and a test caught it: it rejected
+*any* non-`AUTO` mode, but Claude's default is `VALIDATED`, so it would have
+refused nearly all Claude traffic. The conflict is specifically about *forcing*.
+
+**Upstream errors nested a second envelope.** The Anthropic-shaped error arrived
+inside the Google error's `message` field, so clients saw an escaped JSON blob
+instead of a sentence. `first_message` now unwraps one level.
+
+### The signature cache is not load-bearing — measured, not assumed
+
+This closes the question left open since M3. The tool-call replay was run twice:
+once with the cache warm (a real signature reattached) and once cold (an id the
+process had never issued, so the `skip_thought_signature_validator` sentinel was
+sent instead). **Both were accepted and both produced identical answers.**
+
+So for Gemini, the sentinel is a full substitute for a captured signature, and
+the cache is fidelity insurance rather than a correctness requirement. The
+reference projects' claim that signatures *must* be preserved does not hold for
+this path. The Claude path has no sentinel, so there the cache remains the only
+mechanism — but Claude cannot currently exercise it, because a forced tool choice
+is incompatible with thinking and a non-forced one may not call a tool at all.
+
+## M6 — Observability
+
+Added `src/observ/`: `metrics.rs` (Prometheus), `audit.rs` (SQLite), and the
+dashboard in `src/server/dashboard.html`. All four observability items confirmed
+at kickoff are now built.
+
+### Three decisions
+
+**Writes never block a request.** SQLite is synchronous, so audit records go
+through a channel to a thread that owns the write connection. A request path that
+waited on an fsync would trade latency for telemetry, which is the wrong trade.
+
+**Losing a record is acceptable; failing a request is not.** A broken database or
+a full channel degrades to a logged warning. Nor can either component stop the
+gateway starting: one that refuses to boot because it cannot write a log file is
+a worse outcome than one running without telemetry.
+
+**The account is recorded by credential id, not by email.** Stable across a
+rename, and it correlates against `/health` without scattering addresses through
+a table.
+
+### Metric cardinality
+
+The `model` label is bounded to the catalogue, with anything unknown collapsing
+to `other`. This matters more than it sounds: the model name is client-supplied,
+so labelling with it directly would let one client mint unbounded series and take
+down the metrics endpoint. The wire model is also mapped back to its catalogue
+entry, so the four tiered spellings of one Flash model are one series rather than
+four — which is what a dashboard wants anyway.
+
+### What the browser caught
+
+`curl` returning 200 with 10 KB of HTML proved nothing. Loading the page showed
+`perAccount.map is not a function`: `/api/stats/accounts` returns
+`{"accounts": [...]}` and the script treated it as an array. The stat cards
+rendered, so the page looked alive, while both tables sat on "loading…" forever.
+
+Fixed, and the renderers are now isolated per section so one malformed payload
+cannot blank the rest of the page without saying which part failed.
+
+### Verified live
+
+- `/metrics` reports request counts by model and outcome, account conditions, and
+  the signature cache size.
+- `/api/stats` and `/api/stats/accounts` return real aggregates from SQLite:
+  requests, error counts, token sums, and mean latency, per account.
+- `/api/requests` returns the recent log with account, model, status, latency,
+  token breakdown, and attempt count.
+- The dashboard renders both accounts, the traffic cards, and the request table,
+  confirmed by screenshot rather than by status code.
+
+### Two bugs found, one by the compiler and one by the user asking
+
+**A deadlock in `AuditLog::drop`.** It joined the writer thread before the sender
+had been dropped, so the writer's `recv` never returned and the join blocked
+forever. Every audit test hung rather than failed — the suite simply stopped
+producing output, which is what prompted the question that found it. Fixed by
+closing the channel before joining.
+
+**A stale binary masked a fix.** After correcting the metric labels, live
+verification still showed `other`, because `cargo test` had not refreshed
+`target/debug/gravitygate.exe`. Worth remembering: `cargo build` before
+believing a live result.
+
 ## Next, in order
 
-1. **`serve` and `/v1/chat/completions`** — turns the library into a gateway.
-   Everything under it is now built.
-2. **A two-turn live tool loop** — closes the replay half of the signature cache.
-   Natural to do as a script against `serve`.
+1. **Live `fetchAvailableModels`.** `/v1/models` is built from the static
+   catalogue. Merging the live list would make it authoritative about what an
+   account can actually reach; the catalogue already supplies what the upstream
+   does not report.
+2. **A Claude tool loop.** Blocked on the thinking/tool-choice constraint above,
+   not on the gateway.
+3. **M7 — the OpenAI Responses API.** Phase two of the approved plan, and the
+   only client protocol still missing.

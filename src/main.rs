@@ -101,11 +101,9 @@ async fn cmd_serve(
         );
     }
 
-    bail!(
-        "`serve` is not implemented yet.\n\
-         Implemented so far: account management and `gravitygate probe`.\n\
-         Try `gravitygate account add-token <token>` then `gravitygate probe`."
-    )
+    gravitygate::server::serve(config, store)
+        .await
+        .map_err(|error| anyhow::anyhow!("{error:#}"))
 }
 
 // ---------------------------------------------------------------------------
@@ -953,6 +951,18 @@ default_tier = "medium"
 
 [logging]
 level = "info"
+
+[metrics]
+# Serve Prometheus metrics at /metrics.
+enabled = true
+
+[audit]
+# Record every request to a SQLite file, for /api/stats and the dashboard.
+enabled = true
+# Defaults to audit.db in the config directory.
+# path = "/var/lib/gravitygate/audit.db"
+# Records older than this are pruned at startup and daily.
+retention_days = 30
 "#;
 
 #[cfg(test)]

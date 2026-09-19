@@ -226,6 +226,17 @@ impl SessionStore {
         }
     }
 
+    /// Forget every session.
+    ///
+    /// Sessions carry conversation identity and step counts. Dropping them makes
+    /// the next request in each conversation look like a fresh one, which is the
+    /// right answer when the credentials underneath have changed: the upstream
+    /// state those ids referred to belongs to an account that may no longer be
+    /// in play.
+    pub fn clear(&self) {
+        self.sessions.lock().expect("session store poisoned").clear();
+    }
+
     /// Mark that a tool-execution round completed, so the next turn reports a
     /// `last_execution_id` and advances the step index.
     pub fn complete_execution(&self, key: &str) {
@@ -347,6 +358,21 @@ mod tests {
             store.begin_request(&format!("conv-{i}"), "gemini-3.8-flash", 1);
         }
         assert!(store.len() <= MAX_SESSIONS);
+    }
+
+    #[test]
+    fn clearing_empties_the_store() {
+        let store = SessionStore::new();
+        store.begin_request("c", "gemini-3.8-flash", 1);
+        store.complete_execution("c");
+        assert_eq!(store.len(), 1);
+
+        store.clear();
+        assert_eq!(store.len(), 0);
+
+        // A cleared conversation starts over rather than resuming.
+        let meta = store.begin_request("c", "gemini-3.8-flash", 1);
+        assert!(meta.labels.get("last_execution_id").is_none());
     }
 
     #[test]

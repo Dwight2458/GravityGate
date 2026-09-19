@@ -536,14 +536,27 @@ fn contains_token(haystack: &str, needle: &str) -> bool {
 }
 
 /// Pull the human-readable message out of an error body.
+///
+/// The upstream sometimes nests an Anthropic-shaped envelope inside the Google
+/// error's `message`, so a message that is itself JSON is unwrapped once. Without
+/// this a client sees an escaped JSON blob instead of the sentence describing
+/// what went wrong.
 fn first_message(body: &str) -> Option<String> {
     let value: Value = serde_json::from_str(body).ok()?;
-    value
+    let message = value
         .pointer("/error/message")
         .and_then(Value::as_str)
         .or_else(|| value.get("error_description").and_then(Value::as_str))
-        .or_else(|| value.get("error").and_then(Value::as_str))
-        .map(str::to_string)
+        .or_else(|| value.get("error").and_then(Value::as_str))?;
+
+    let trimmed = message.trim();
+    if trimmed.starts_with('{')
+        && let Ok(nested) = serde_json::from_str::<Value>(trimmed)
+        && let Some(inner) = nested.pointer("/error/message").and_then(Value::as_str)
+    {
+        return Some(inner.to_string());
+    }
+    Some(message.to_string())
 }
 
 /// Find the URL an account holder has to visit to clear a verification demand.
@@ -1095,6 +1108,29 @@ mod tests {
         assert_eq!(parse_duration_string("abc"), None);
         assert_eq!(parse_duration_string("10x"), None);
         assert_eq!(parse_duration_string("0s"), None);
+    }
+
+    #[test]
+    fn a_nested_error_envelope_is_unwrapped() {
+        // The live shape: the Anthropic-shaped envelope arrives inside the
+        // Google error's message field.
+        let body = r#"{"error":{"message":"{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"Thinking may not be enabled when tool_choice forces tool use.\"}}"}}"#;
+        assert_eq!(
+            first_message(body).as_deref(),
+            Some("Thinking may not be enabled when tool_choice forces tool use.")
+        );
+    }
+
+    #[test]
+    fn a_plain_message_is_left_alone() {
+        let body = r#"{"error":{"message":"Invalid JSON payload"}}"#;
+        assert_eq!(first_message(body).as_deref(), Some("Invalid JSON payload"));
+    }
+
+    #[test]
+    fn a_message_that_is_json_without_an_inner_message_is_kept() {
+        let body = r#"{"error":{"message":"{\"unexpected\":true}"}}"#;
+        assert!(first_message(body).unwrap().contains("unexpected"));
     }
 
     #[test]

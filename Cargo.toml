@@ -11,8 +11,11 @@ base64 = "0.23.1"
 bytes = "1.12.1"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 futures = "0.3.34"
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
 rand = "0.10.2"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "stream", "json", "form", "charset", "system-proxy"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }
 sha2 = "0.11.0"

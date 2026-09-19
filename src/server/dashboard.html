@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GravityGate</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --line: #2b3038;
+    --text: #e6e8ec;
+    --dim: #8b93a1;
+    --ok: #4ec9a0;
+    --warn: #e2b341;
+    --bad: #e2596b;
+    --accent: #6aa9ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 14px;
+    padding: 18px 24px; border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header .state { font-size: 13px; }
+  header .stamp { margin-left: auto; font-size: 12px; color: var(--dim); }
+  main { padding: 20px 24px 40px; display: flex; flex-direction: column; gap: 22px; }
+  section h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--dim); margin: 0 0 10px; font-weight: 600;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px;
+  }
+  .card .label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; }
+  .card .value { font-size: 22px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card .sub { font-size: 12px; color: var(--dim); margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 8px; overflow: hidden; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--dim); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  .pill {
+    display: inline-block; padding: 1px 8px; border-radius: 999px;
+    font-size: 11.5px; font-weight: 600; border: 1px solid transparent;
+  }
+  .pill.ready   { color: var(--ok);   background: rgba(78,201,160,.12);  border-color: rgba(78,201,160,.3); }
+  .pill.limited { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
+  .pill.cooling { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
+  .pill.verify  { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
+  .pill.ineligible, .pill.disabled { color: var(--bad); background: rgba(226,89,107,.12); border-color: rgba(226,89,107,.3); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .good { color: var(--ok); } .sorry { color: var(--bad); } .muted { color: var(--dim); }
+  a { color: var(--accent); }
+  .empty { padding: 22px 12px; color: var(--dim); text-align: center; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; min-width: 60px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  footer { padding: 0 24px 30px; color: var(--dim); font-size: 12px; }
+  code { background: #10121699; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GravityGate</h1>
+  <span class="state" id="state"></span>
+  <span class="stamp" id="stamp"></span>
+</header>
+
+<main>
+  <section>
+    <h2>Accounts</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Account</th><th>ID</th><th>Status</th><th>Tier</th>
+          <th>Project</th><th>Requests (1h)</th><th>Errors</th>
+        </tr>
+      </thead>
+      <tbody id="accounts"><tr><td colspan="7" class="empty">loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Traffic (last hour)</h2>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section>
+    <h2>Recent requests</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>When</th><th>Account</th><th>Model</th><th>Status</th>
+          <th class="num">Latency</th><th class="num">Prompt</th>
+          <th class="num">Out</th><th class="num">Reasoning</th><th class="num">Attempts</th>
+        </tr>
+      </thead>
+      <tbody id="requests"><tr><td colspan="9" class="empty">loading…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<footer>
+  Read-only. Account management is on the command line:
+  <code>gravitygate account list</code>, <code>gravitygate account login</code>.
+</footer>
+
+<script>
+const REFRESH_MS = 5000;
+
+// Fetch JSON, surfacing the gateway's error envelope rather than a bare status,
+// so a misconfiguration reads as a message instead of "failed".
+async function get(path) {
+  const response = await fetch(path, { headers: { accept: 'application/json' } });
+  const text = await response.text();
+  let payload;
+  try { payload = JSON.parse(text); } catch { throw new Error(`${path}: ${response.status}`); }
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `${path}: ${response.status}`);
+  }
+  return payload;
+}
+
+function elapsed(seconds) {
+  if (seconds == null) return '';
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function ago(ms) {
+  const seconds = Math.max(0, (Date.now() - ms) / 1000);
+  if (seconds < 60) return `${Math.round(seconds)}s ago`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)}m ago`;
+  return `${(seconds / 3600).toFixed(1)}h ago`;
+}
+
+const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function statusCell(account) {
+  const detail = account.detail ? `<span class="muted"> · ${esc(account.detail)}</span>` : '';
+  const wait = account.available_in_seconds != null
+    ? ` <span class="muted">(${elapsed(account.available_in_seconds)} left)</span>` : '';
+  return `<span class="pill ${esc(account.status)}">${esc(account.status)}</span>${wait}${detail}`;
+}
+
+function renderAccounts(health, perAccount) {
+  const byId = new Map(perAccount.map((row) => [row.account_id, row]));
+  const body = document.getElementById('accounts');
+
+  if (!health.accounts.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">No accounts configured. '
+      + 'Add one with <code>gravitygate account login</code>.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = health.accounts.map((account) => {
+    const stats = byId.get(account.credential_id) || { requests: 0, errors: 0 };
+    const verify = account.verification_url
+      ? ` <a href="${esc(account.verification_url)}" target="_blank" rel="noreferrer">verify</a>` : '';
+    return `<tr>
+      <td>${esc(account.label)}</td>
+      <td class="mono">${esc(account.credential_id)}</td>
+      <td>${statusCell(account)}${verify}</td>
+      <td>${esc(account.tier || '—')}</td>
+      <td class="mono">${esc(account.project_id || '—')}</td>
+      <td class="num">${stats.requests}</td>
+      <td class="num ${stats.errors ? 'sorry' : 'muted'}">${stats.errors}</td>
+    </tr>`;
+  }).join('');
+}
+
+function card(label, value, sub) {
+  return `<div class="card"><div class="label">${esc(label)}</div>
+    <div class="value">${esc(value)}</div>
+    ${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</div>`;
+}
+
+function renderCards(totals) {
+  const okRate = totals.requests ? Math.round((totals.ok / totals.requests) * 100) : 100;
+  document.getElementById('cards').innerHTML = [
+    card('Requests', totals.requests, `${totals.ok} ok · ${totals.errors} failed`),
+    card('Mean latency', `${totals.mean_latency_ms} ms`, 'end to end'),
+    card('Prompt tokens', totals.prompt_tokens.toLocaleString(),
+         `${totals.cached_tokens.toLocaleString()} cached`),
+    card('Completion', totals.completion_tokens.toLocaleString(),
+         `${totals.reasoning_tokens.toLocaleString()} reasoning`),
+    card('Success rate', `${okRate}%`, totals.requests ? 'of requests in the window' : 'no traffic yet'),
+  ].join('');
+}
+
+function renderRequests(requests) {
+  const body = document.getElementById('requests');
+  if (!requests.length) {
+    body.innerHTML = '<tr><td colspan="9" class="empty">No requests recorded yet.</td></tr>';
+    return;
+  }
+  body.innerHTML = requests.map((r) => {
+    const ok = r.outcome === 'ok';
+    return `<tr>
+      <td class="muted">${ago(r.ts)}</td>
+      <td class="mono">${esc(r.account_id)}</td>
+      <td class="mono">${esc(r.requested_model)}</td>
+      <td class="${ok ? 'good' : 'sorry'}">${r.status} ${esc(r.outcome)}</td>
+      <td class="num">${r.latency_ms} ms</td>
+      <td class="num">${r.prompt_tokens}</td>
+      <td class="num">${r.completion_tokens}</td>
+      <td class="num">${r.reasoning_tokens}</td>
+      <td class="num ${r.attempts > 1 ? 'sorry' : 'muted'}">${r.attempts}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderState(health) {
+  const dot = health.serving ? 'good' : 'sorry';
+  document.getElementById('state').innerHTML =
+    `<span class="dot" style="background:currentColor" class="${dot}"></span>`
+    + `<span class="${dot}">${esc(health.status)}</span>`
+    + `<span class="muted"> · ${health.accounts_available}/${health.accounts_configured} accounts available`
+    + ` · ${health.signatures_cached} signatures cached</span>`;
+  document.getElementById('stamp').textContent = `updated ${new Date().toLocaleTimeString()}`;
+}
+
+// Render one section, isolating its failure so a broken panel cannot blank the
+// rest of the page. Without this, one malformed payload leaves every later
+// table stuck on "loading…" with no indication of which part went wrong.
+function section(name, render) {
+  try {
+    render();
+  } catch (error) {
+    console.error(`${name}:`, error);
+    const target = document.getElementById(name);
+    if (target) {
+      target.innerHTML = `<tr><td colspan="9" class="sorry">`
+        + `${esc(name)} failed: ${esc(error.message)}</td></tr>`;
+    }
+  }
+}
+
+async function refresh() {
+  try {
+    const [health, totals, perAccount, requests] = await Promise.all([
+      get('/health'), get('/api/stats'), get('/api/stats/accounts'), get('/api/requests?limit=40'),
+    ]);
+    section('state', () => renderState(health));
+    section('cards', () => renderCards(totals));
+    section('accounts', () => renderAccounts(health, perAccount?.accounts ?? []));
+    section('requests', () => renderRequests(requests?.requests ?? []));
+  } catch (error) {
+    // Only reached when a fetch itself fails, which is the one case where there
+    // is no partial result to render.
+    document.getElementById('state').innerHTML =
+      `<span class="dot" style="background:currentColor" class="sorry"></span>`
+      + `<span class="sorry">${esc(error.message)}</span>`;
+  }
+}
+
+refresh();
+setInterval(refresh, REFRESH_MS);
+</script>
+</body>
+</html>

@@ -39,6 +39,12 @@ pub struct Prepared {
     pub ir: GenerateContentRequest,
     pub resolved: ResolvedModel,
     pub session_key: String,
+    /// The model name the client sent, for metrics and the audit log. Distinct
+    /// from the wire model, and the one an operator will recognise.
+    pub requested_model: String,
+    /// Whether the client asked for a stream, recorded so the audit log can
+    /// distinguish the two without guessing from the outcome.
+    pub stream: bool,
 }
 
 /// A successful upstream call.
@@ -131,6 +137,8 @@ impl Engine {
             ir,
             resolved,
             session_key,
+            requested_model: request.model.clone(),
+            stream: request.stream,
         })
     }
 

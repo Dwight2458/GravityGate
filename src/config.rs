@@ -28,6 +28,56 @@ pub struct Config {
     pub routing: RoutingConfig,
     pub reasoning: ReasoningConfig,
     pub logging: LoggingConfig,
+    pub metrics: MetricsConfig,
+    pub audit: AuditConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MetricsConfig {
+    /// Serve Prometheus metrics at `/metrics`.
+    pub enabled: bool,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditConfig {
+    /// Record every request to a SQLite file.
+    pub enabled: bool,
+    /// Where the database lives. Defaults to `audit.db` in the config directory.
+    pub path: Option<String>,
+    /// How long records are kept before pruning.
+    pub retention_days: u64,
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            path: None,
+            retention_days: 30,
+        }
+    }
+}
+
+impl AuditConfig {
+    /// Where the audit database actually lives.
+    pub fn resolved_path(&self) -> PathBuf {
+        match &self.path {
+            Some(path) if !path.is_empty() => PathBuf::from(path),
+            _ => config_dir().join("audit.db"),
+        }
+    }
+
+    pub fn retention(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.retention_days.max(1) * 24 * 60 * 60)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -365,6 +415,11 @@ impl Config {
             ));
         }
         let known_tiers = ["minimal", "low", "medium", "high"];
+        if self.audit.retention_days == 0 {
+            return Err(ConfigError::Invalid(
+                "audit.retention_days must be at least 1".into(),
+            ));
+        }
         if !known_tiers.contains(&self.reasoning.default_tier.as_str()) {
             return Err(ConfigError::Invalid(format!(
                 "reasoning.default_tier must be one of {known_tiers:?}"
@@ -513,6 +568,47 @@ mod tests {
         let mut config = Config::default();
         config.reasoning.default_tier = "enormous".into();
         assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn audit_path_defaults_into_the_config_directory() {
+        let config = AuditConfig::default();
+        assert!(config.resolved_path().ends_with("audit.db"));
+        assert!(config.resolved_path().starts_with(config_dir()));
+    }
+
+    #[test]
+    fn an_explicit_audit_path_is_used() {
+        let config = AuditConfig {
+            path: Some("/tmp/custom.db".into()),
+            ..Default::default()
+        };
+        assert_eq!(config.resolved_path(), PathBuf::from("/tmp/custom.db"));
+    }
+
+    #[test]
+    fn an_empty_audit_path_falls_back_to_the_default() {
+        let config = AuditConfig {
+            path: Some(String::new()),
+            ..Default::default()
+        };
+        assert!(config.resolved_path().ends_with("audit.db"));
+    }
+
+    #[test]
+    fn zero_retention_is_rejected() {
+        // Retaining nothing means pruning everything on every pass.
+        let mut config = Config::default();
+        config.audit.retention_days = 0;
+        assert!(matches!(config.validate(), Err(ConfigError::Invalid(_))));
+    }
+
+    #[test]
+    fn observability_is_on_by_default() {
+        let config = Config::default();
+        assert!(config.metrics.enabled);
+        assert!(config.audit.enabled);
+        assert_eq!(config.audit.retention_days, 30);
     }
 
     #[test]
