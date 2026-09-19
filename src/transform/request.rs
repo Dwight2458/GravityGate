@@ -285,14 +285,31 @@ fn convert_messages(
 ) -> Vec<Content> {
     let mut contents: Vec<Content> = Vec::new();
 
+    // Tool call id to tool name, learned from the assistant turn that made each
+    // call. Neither protocol requires a tool *result* to repeat the name — the
+    // OpenAI Chat Completions spec puts it on the call, and the Responses
+    // protocol's `function_call_output` item has no name field at all — but the
+    // upstream requires a non-empty name on every `functionResponse` and rejects
+    // the whole request without one. Recovering it here is the only place with
+    // both halves in view.
+    let mut call_names: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
     for message in messages {
+        // Record the names this turn provides before anything consumes them.
+        for call in message.tool_calls.iter().flatten() {
+            if let (Some(id), Some(name)) = (&call.id, call.function.as_ref().and_then(|f| f.name.as_ref()))
+            {
+                call_names.insert(id.clone(), name.clone());
+            }
+        }
+
         match message.role.as_str() {
             "system" | "developer" => {
                 // Handled by the system instruction.
             }
 
             "tool" => {
-                let Some(part) = convert_tool_result(message, notes) else {
+                let Some(part) = convert_tool_result(message, &call_names, notes) else {
                     continue;
                 };
                 // Tool results must sit in a single user turn with nothing but
@@ -483,13 +500,28 @@ fn reorder_assistant_parts(parts: &mut [Part]) {
     });
 }
 
-fn convert_tool_result(message: &Message, notes: &mut Notes) -> Option<Part> {
-    let name = message.name.clone().unwrap_or_else(|| {
-        // The OpenAI protocol puts the tool name on the originating call, not on
-        // the result, and some clients omit `name` entirely.
-        notes.warn("tool result had no name; using 'unknown'");
-        "unknown".to_string()
-    });
+fn convert_tool_result(
+    message: &Message,
+    call_names: &std::collections::HashMap<String, String>,
+    notes: &mut Notes,
+) -> Option<Part> {
+    // A name on the result wins; otherwise the originating call supplies it.
+    let name = message
+        .name
+        .clone()
+        .filter(|name| !name.is_empty())
+        .or_else(|| {
+            message
+                .tool_call_id
+                .as_ref()
+                .and_then(|id| call_names.get(id).cloned())
+        })
+        .unwrap_or_else(|| {
+            // Only reachable when a client sends a result whose call is not in
+            // the conversation at all.
+            notes.warn("tool result had no name and no matching call; using 'unknown'");
+            "unknown".to_string()
+        });
 
     let text = match &message.content {
         Some(MessageContent::Text(text)) => text.clone(),
@@ -916,6 +948,84 @@ mod tests {
             last.parts[0].function_response.as_ref().unwrap().name,
             "a"
         );
+    }
+
+    #[test]
+    fn a_tool_result_without_a_name_inherits_it_from_its_call() {
+        // Neither protocol requires the result to repeat the name, and the
+        // upstream rejects an empty one outright.
+        let (ir, notes) = translate(json!({
+            "model": "m",
+            "messages": [
+                { "role": "user", "content": "go" },
+                { "role": "assistant", "tool_calls": [{
+                    "id": "call_1", "type": "function",
+                    "function": { "name": "get_weather", "arguments": "{}" }
+                }]},
+                { "role": "tool", "tool_call_id": "call_1", "content": "18C" }
+            ]
+        }));
+
+        let response = ir
+            .contents
+            .last()
+            .unwrap()
+            .parts[0]
+            .function_response
+            .as_ref()
+            .unwrap();
+        assert_eq!(response.name, "get_weather");
+        assert!(
+            !notes.warnings.iter().any(|w| w.contains("unknown")),
+            "the name was recoverable, so this is not a warning: {:?}",
+            notes.warnings
+        );
+    }
+
+    #[test]
+    fn an_explicit_name_on_the_result_still_wins() {
+        let (ir, _) = translate(json!({
+            "model": "m",
+            "messages": [
+                { "role": "user", "content": "go" },
+                { "role": "assistant", "tool_calls": [{
+                    "id": "call_1", "type": "function",
+                    "function": { "name": "from_call", "arguments": "{}" }
+                }]},
+                { "role": "tool", "tool_call_id": "call_1", "name": "from_result", "content": "x" }
+            ]
+        }));
+        let response = ir
+            .contents
+            .last()
+            .unwrap()
+            .parts[0]
+            .function_response
+            .as_ref()
+            .unwrap();
+        assert_eq!(response.name, "from_result");
+    }
+
+    #[test]
+    fn an_unmatchable_tool_result_still_produces_a_usable_name() {
+        // The upstream rejects an empty name, so a placeholder beats a failure.
+        let (ir, notes) = translate(json!({
+            "model": "m",
+            "messages": [
+                { "role": "user", "content": "go" },
+                { "role": "tool", "tool_call_id": "orphan", "content": "x" }
+            ]
+        }));
+        let response = ir
+            .contents
+            .last()
+            .unwrap()
+            .parts[0]
+            .function_response
+            .as_ref()
+            .unwrap();
+        assert_eq!(response.name, "unknown");
+        assert!(notes.warnings.iter().any(|w| w.contains("unknown")));
     }
 
     #[test]

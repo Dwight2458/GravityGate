@@ -17,7 +17,9 @@
 pub mod admin;
 pub mod chat;
 pub mod error;
+pub mod execute;
 pub mod models;
+pub mod responses;
 
 use std::sync::Arc;
 
@@ -75,6 +77,7 @@ pub fn app_with_state(state: SharedState) -> Router {
         .route("/", get(admin::dashboard))
         .route("/v1/chat/completions", post(chat::completions))
         .route("/v1/models", get(models::list))
+        .route("/v1/responses", post(responses::create))
         .route("/health", get(admin::health))
         .route("/account-limits", get(admin::account_limits))
         .route("/refresh-token", post(admin::refresh_token))

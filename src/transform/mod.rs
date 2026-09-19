@@ -4,5 +4,6 @@ pub mod ir;
 pub mod openai;
 pub mod request;
 pub mod response;
+pub mod responses;
 pub mod schema;
 pub mod signature_cache;

@@ -11,9 +11,8 @@ backend, written in Rust on Axum and Tokio.
 
 ## Status
 
-The gateway works end to end. Everything in the table below has been exercised
-against live accounts over HTTP; the one remaining piece is the OpenAI Responses
-API, which is phase two of the plan.
+The gateway works end to end, on both protocol routes. Everything in the table
+below has been exercised against live accounts over HTTP.
 
 | Area | State |
 |---|---|
@@ -31,8 +30,9 @@ API, which is phase two of the plan.
 | Thinking signature cache | done; replay measured as optional on Gemini |
 | `serve`, `/v1/chat/completions` | done, live-validated |
 | Metrics, audit log, dashboard | done, live-validated |
+| OpenAI Responses API (`/v1/responses`) | done, live-validated |
+| Live model list (`fetchAvailableModels`) | done, live-validated |
 | CLI: `account`, `probe`, `config`, `serve` | done |
-| OpenAI Responses API (`/v1/responses`) | **not started** |
 
 Per-milestone detail, decisions, and what was verified when is in
 [docs/progress.md](docs/progress.md).

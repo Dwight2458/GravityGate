@@ -20,6 +20,8 @@ use crate::accounts::store::AccountStore;
 use crate::config::Config;
 use crate::engine::credentials::CredentialCache;
 use crate::oauth::token::OAuthClient;
+use crate::registry::live::LiveCatalogue;
+
 use crate::transform::openai::{ChatCompletion, ChatCompletionRequest};
 use crate::transform::response::{ResponseOptions, StreamTranslator, to_completion};
 use crate::transform::signature_cache::SignatureCache;
@@ -46,6 +48,9 @@ pub struct Engine {
     /// health scores describe this process's recent behaviour, not the account's
     /// durable state.
     pub router: AccountRouter,
+    /// The upstream's model list, shared across accounts because membership is
+    /// a deployment property rather than an account one.
+    pub live_catalogue: LiveCatalogue,
 }
 
 impl Engine {
@@ -72,12 +77,91 @@ impl Engine {
             sessions: SessionStore::new(),
             signatures: SignatureCache::new(),
             router: AccountRouter::new(strategy, scoring),
+            live_catalogue: LiveCatalogue::new(),
         })
     }
 
     /// Endpoints to try, from config.
     fn endpoints(&self) -> Vec<String> {
         self.config.upstream.endpoints.clone()
+    }
+
+    /// Ask the upstream which models an account can reach.
+    ///
+    /// Uses the first account that can produce a token and a project. The answer
+    /// is a property of the deployment rather than of that particular account,
+    /// which is why one call is enough.
+    pub async fn fetch_available_models(
+        &self,
+    ) -> Result<Vec<crate::registry::LiveModel>, ProbeError> {
+        let snapshot = self.accounts.snapshot();
+        let account = snapshot
+            .accounts
+            .iter()
+            .find(|account| account.is_available(crate::accounts::account::now_ms()))
+            .ok_or_else(|| {
+                ProbeError::Dispatch(crate::engine::dispatch::DispatchError::NoAccounts)
+            })?
+            .clone();
+
+        let prepared = self.prepare_account(&account).await?;
+        let body = serde_json::json!({ "project": prepared.project_id });
+
+        let mut last_error = None;
+        for endpoint in self.endpoints() {
+            let url = format!(
+                "{}{}",
+                endpoint,
+                crate::upstream::constants::API_FETCH_AVAILABLE_MODELS
+            );
+            match self
+                .upstream
+                .post_json_buffered(&url, &prepared.access_token, body.to_string().as_bytes())
+                .await
+            {
+                Ok(response) if response.is_success() => {
+                    match crate::registry::live::parse(&response.body_text()) {
+                        Ok(models) => return Ok(models),
+                        Err(error) => last_error = Some(error.to_string()),
+                    }
+                }
+                Ok(response) => last_error = Some(format!("{} at {endpoint}", response.status)),
+                Err(error) => last_error = Some(error.to_string()),
+            }
+        }
+
+        Err(ProbeError::Unavailable(
+            last_error.unwrap_or_else(|| "no endpoints configured".into()),
+        ))
+    }
+
+    /// The upstream's model list, refreshing it when the cache is cold.
+    ///
+    /// Never fails. A refresh that does not work falls back to whatever was
+    /// cached before; an entirely cold cache yields an empty list and leaves the
+    /// caller to fall back to the static catalogue. A model list that empties on
+    /// a network hiccup would be worse than a stale one, because clients fetch
+    /// it once at startup and keep it.
+    pub async fn live_models(&self) -> Vec<crate::registry::LiveModel> {
+        if let Some(models) = self.live_catalogue.fresh() {
+            return models;
+        }
+
+        match self.fetch_available_models().await {
+            Ok(models) => {
+                tracing::debug!(count = models.len(), "refreshed the live model list");
+                self.live_catalogue.store(models.clone());
+                models
+            }
+            Err(error) => {
+                if let Some(stale) = self.live_catalogue.stale() {
+                    tracing::warn!(%error, "model list refresh failed; serving the cached list");
+                    return stale;
+                }
+                tracing::debug!(%error, "model list unavailable; static catalogue only");
+                Vec::new()
+            }
+        }
     }
 
     /// Resolve an access token and a project for an account.
@@ -411,6 +495,10 @@ pub enum ProbeError {
 
     #[error("{0}")]
     Dispatch(#[from] crate::engine::dispatch::DispatchError),
+
+    /// An auxiliary call failed in a way that is not worth a typed error.
+    #[error("{0}")]
+    Unavailable(String),
 
     #[error("project discovery failed: {0}")]
     Project(#[from] crate::accounts::project::ProjectError),

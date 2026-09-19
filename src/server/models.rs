@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+use crate::registry::live::LiveModel;
 use crate::registry::models::{MODELS, ModelSpec, Modality};
 use crate::registry::{ThinkingTier, resolve};
 
@@ -24,12 +25,17 @@ pub struct ModelEntry {
     created: i64,
     owned_by: String,
     /// Context window and output ceiling, which clients use for budgeting.
-    context_length: u32,
-    max_output_tokens: u32,
+    /// Absent for a model the static catalogue does not describe.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_output_tokens: Option<u32>,
     supports_reasoning: bool,
     supports_tools: bool,
     input_modalities: Vec<&'static str>,
     output_modalities: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
 }
 
 /// List the models this gateway can serve.
@@ -43,13 +49,70 @@ pub struct ModelEntry {
 /// Tier variants are listed alongside their base name because both are accepted:
 /// `gemini-3.8-flash` resolves by `reasoning_effort`, and
 /// `gemini-3.8-flash-high` resolves by name.
-pub async fn list(State(_state): State<SharedState>) -> Response {
-    let data = MODELS
-        .iter()
-        .flat_map(entries_for)
-        .collect::<Vec<_>>();
+pub async fn list(State(state): State<SharedState>) -> Response {
+    let live = state.engine.live_models().await;
+
+    // Merge order matters. The static table supplies the metadata the upstream
+    // does not report, so it wins on anything it knows. The live list is the
+    // authority on membership, so it adds anything the table has never heard of
+    // — a model the account can reach that this build predates.
+    //
+    // A model the *upstream* says is exhausted is still listed. Clients use this
+    // endpoint to populate a picker once at startup and cache it for the
+    // session; removing a model that clears in an hour would mean a restart to
+    // get it back. Exhaustion belongs on the quota endpoints, not here.
+    let known: std::collections::BTreeSet<&str> =
+        MODELS.iter().map(|spec| spec.id).collect();
+
+    let mut data: Vec<ModelEntry> = MODELS.iter().flat_map(entries_for).collect();
+
+    // Live models whose wire name is not already represented. A wire model maps
+    // back to its catalogue entry, so `gemini-3.8-flash-medium` arriving live
+    // does not add a duplicate of `gemini-3.8-flash`.
+    let mut seen: std::collections::BTreeSet<String> =
+        data.iter().map(|entry| entry.id.clone()).collect();
+    let mut live_only: Vec<ModelEntry> = Vec::new();
+
+    for model in &live {
+        if crate::registry::models::base_for_wire(&model.id).is_some() {
+            continue;
+        }
+        if known.contains(model.id.as_str()) || !seen.insert(model.id.clone()) {
+            continue;
+        }
+        live_only.push(entry_for_live(model));
+    }
+    data.extend(live_only);
 
     (StatusCode::OK, Json(ModelList { object: "list", data })).into_response()
+}
+
+/// Describe a model the static catalogue does not know.
+///
+/// The limits are deliberately absent rather than guessed: an entry with a
+/// wrong context window is worse than one with no context window, because a
+/// client will budget against it. `None` here means "ask the model".
+fn entry_for_live(model: &LiveModel) -> ModelEntry {
+    ModelEntry {
+        id: model.id.clone(),
+        object: "model",
+        created: 0,
+        owned_by: match crate::registry::ModelFamily::infer(&model.id) {
+            crate::registry::ModelFamily::Gemini => "google".into(),
+            crate::registry::ModelFamily::Claude => "anthropic".into(),
+            crate::registry::ModelFamily::GptOss => "openai".into(),
+        },
+        context_length: None,
+        max_output_tokens: None,
+        supports_reasoning: !matches!(
+            crate::registry::ModelFamily::infer(&model.id),
+            crate::registry::ModelFamily::GptOss
+        ),
+        supports_tools: true,
+        input_modalities: vec!["text"],
+        output_modalities: vec!["text"],
+        display_name: model.display_name.clone(),
+    }
 }
 
 /// One catalogue entry, plus one per tier variant where the model has them.
@@ -108,12 +171,13 @@ fn entry_for(id: &str, spec: &ModelSpec) -> ModelEntry {
             crate::registry::ModelFamily::Claude => "anthropic".into(),
             crate::registry::ModelFamily::GptOss => "openai".into(),
         },
-        context_length: spec.context_limit,
-        max_output_tokens: spec.output_limit,
+        context_length: Some(spec.context_limit),
+        max_output_tokens: Some(spec.output_limit),
         supports_reasoning: spec.supports_thinking,
         supports_tools: spec.supports_tools,
         input_modalities: spec.input_modalities.iter().map(modality_name).collect(),
         output_modalities: spec.output_modalities.iter().map(modality_name).collect(),
+        display_name: Some(spec.display_name.to_string()),
     }
 }
 
@@ -128,6 +192,7 @@ fn modality_name(modality: &Modality) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::models::base_for_wire;
 
     fn entries() -> Vec<ModelEntry> {
         MODELS.iter().flat_map(entries_for).collect()
@@ -221,8 +286,8 @@ mod tests {
             .into_iter()
             .find(|entry| entry.id == "gemini-3.8-flash")
             .unwrap();
-        assert_eq!(entry.context_length, 1_048_576);
-        assert_eq!(entry.max_output_tokens, 65_536);
+        assert_eq!(entry.context_length, Some(1_048_576));
+        assert_eq!(entry.max_output_tokens, Some(65_536));
         assert!(entry.supports_reasoning);
         assert!(entry.supports_tools);
         assert!(entry.input_modalities.contains(&"image"));
@@ -235,6 +300,35 @@ mod tests {
         assert_eq!(find("gemini-3.8-flash").owned_by, "google");
         assert_eq!(find("claude-opus-4-6-thinking").owned_by, "anthropic");
         assert_eq!(find("gpt-oss-120b-medium").owned_by, "openai");
+    }
+
+    #[test]
+    fn a_live_only_model_omits_limits_rather_than_guessing() {
+        // A wrong context window is worse than none: a client budgets against
+        // whatever it is told.
+        let entry = entry_for_live(&LiveModel {
+            id: "gemini-9.9-ultra".into(),
+            display_name: Some("Gemini 9.9".into()),
+            remaining_fraction: None,
+            reset_time: None,
+        });
+        assert!(entry.context_length.is_none());
+        assert!(entry.max_output_tokens.is_none());
+        assert_eq!(entry.display_name.as_deref(), Some("Gemini 9.9"));
+        assert_eq!(entry.owned_by, "google");
+    }
+
+    #[test]
+    fn a_live_model_that_the_catalogue_knows_is_not_duplicated() {
+        // `gemini-3.8-flash-medium` arriving live maps back to the catalogue's
+        // `gemini-3.8-flash`, which is already listed with better metadata.
+        assert!(base_for_wire("gemini-3.8-flash-medium").is_some());
+        assert!(base_for_wire("gemini-3.8-flash").is_some());
+    }
+
+    #[test]
+    fn an_unknown_live_model_is_recognised_as_live_only() {
+        assert!(base_for_wire("gemini-9.9-ultra").is_none());
     }
 
     #[test]
