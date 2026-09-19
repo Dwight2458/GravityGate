@@ -1,0 +1,27 @@
+[package]
+name = "gravitygate"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+async-stream = "0.3.6"
+axum = "0.8.9"
+base64 = "0.23.1"
+bytes = "1.12.1"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+futures = "0.3.34"
+rand = "0.10.2"
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "gzip", "brotli", "deflate", "stream", "json", "form", "charset", "system-proxy"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["preserve_order"] }
+sha2 = "0.11.0"
+thiserror = "2.0.20"
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-util = { version = "0.7.19", features = ["codec", "io"] }
+toml = "1.1.6"
+tower-http = { version = "0.7.1", features = ["trace", "cors", "compression-gzip"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
