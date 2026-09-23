@@ -21,6 +21,9 @@ use gravitygate::oauth::token::OAuthClient;
 async fn main() -> ExitCode {
     let cli = Cli::parse();
     init_tracing(cli.verbose);
+    // Logged at startup so a stale binary announces itself rather than
+    // producing a mystery. This is how the 404 above should have been caught.
+    tracing::debug!(version = cli::VERSION, "starting");
 
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,

@@ -53,7 +53,26 @@ cargo build --release
 
 # Confirm it works before putting anything in front of it.
 ./gravitygate probe --model gemini-3.8-flash
+
+# Run the gateway.
+./gravitygate serve
 ```
+
+Then point any OpenAI client at `http://127.0.0.1:8080/v1`, open
+<http://127.0.0.1:8080/> for the dashboard, and scrape `/metrics` if you want
+Prometheus.
+
+After rebuilding, reinstall if you invoke `gravitygate` from `PATH` rather than
+from `target/`:
+
+```sh
+cargo install --path . --locked
+```
+
+`--version` reports when the binary was built and from which revision. Check it
+first when something misbehaves: a stale install is otherwise indistinguishable
+from a bug, which is exactly how a five-day-old copy once produced a 404 that
+looked like an upstream fault.
 
 `probe` runs the production pipeline — model resolution, request translation,
 signature replay, upstream call, SSE decoding, response translation — and then
@@ -88,6 +107,21 @@ hyper serialises in iteration order, so the sequence of `.header()` calls in
 `src/upstream/transport.rs` is the sequence on the wire. Reordering them is a
 wire-format change. See `docs/m0-transport-findings.md` for what was verified and
 what remains unverified.
+
+## Routes
+
+| Route | |
+|---|---|
+| `POST /v1/chat/completions` | OpenAI-compatible, streaming and buffered |
+| `POST /v1/responses` | the OpenAI Responses API, streaming and buffered |
+| `GET /v1/models` | the static catalogue merged with the upstream's live list |
+| `GET /health` | per-account condition, with reset timers and verification URLs |
+| `GET /account-limits` | quota matrix |
+| `POST /refresh-token` | drops the in-memory caches |
+| `GET /metrics` | Prometheus text exposition |
+| `GET /api/stats`, `/api/stats/accounts` | aggregates over the last hour |
+| `GET /api/requests?limit=N` | the recent request log |
+| `GET /` | the dashboard |
 
 ## Layout
 

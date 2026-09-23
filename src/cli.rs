@@ -10,10 +10,25 @@ use std::path::PathBuf;
 
 use clap::{ArgAction, Parser, Subcommand};
 
+/// The stamp shown by `--version`.
+///
+/// Includes when the binary was built and from which revision, because a stale
+/// binary is otherwise indistinguishable from a bug: an old build once produced
+/// a 404 that looked like an upstream fault, when the binary simply predated
+/// model tier resolution. See `build.rs`.
+pub const VERSION: &str = concat!(
+    env!("CARGO_PKG_VERSION"),
+    " (built ",
+    env!("GRAVITYGATE_BUILD_TIME"),
+    ", rev ",
+    env!("GRAVITYGATE_REVISION"),
+    ")"
+);
+
 #[derive(Debug, Parser)]
 #[command(
     name = "gravitygate",
-    version,
+    version = VERSION,
     about = "OpenAI-compatible gateway for Google Antigravity",
     long_about = "Exposes Google Antigravity (Cloud Code Assist) models through an OpenAI-compatible API.\n\n\
                   Note: using this software violates Google's Terms of Service. Accounts have been \

@@ -4,7 +4,7 @@ Running record of what is built, what was verified, and what is next. Updated as
 each milestone lands. The requirements plan this executes against is the approved
 plan from the kickoff; this file is the state of play.
 
-Last updated: after the live model list and the Responses API.
+Last updated: after diagnosing a 404 that turned out to be a stale binary.
 
 ## At a glance
 
@@ -632,6 +632,52 @@ name and a placeholder beats a failure.
 
 The Responses route has not been driven by a real client — only by hand-written
 requests. Codex CLI is the obvious candidate and would be the next thing to try.
+
+## The 404 that was a stale binary
+
+A `gravitygate probe` failed with `404 Not Found` / `Requested entity was not
+found`, from the same account that had worked days earlier. It was not the
+gateway.
+
+`gravitygate` on `PATH` resolved to `~/.cargo/bin/gravitygate.exe`, installed five
+days earlier, and the probe output gave it away on inspection: it printed the
+pre-M5 field set (`request: 553 bytes`, `requestId:` rather than `traceId:`).
+That build predated two things, and either would have explained it.
+
+The mechanism was confirmed rather than assumed. `examples/raw_probe.rs` sends a
+model name verbatim, with no tier resolution, which is what the old build did:
+
+| Model sent | Result |
+|---|---|
+| `gemini-3.8-flash` | **404 Not Found** |
+| `gemini-3.8-flash-medium` | 200 OK |
+| `gemini-3.8-flash-low` | 200 OK |
+
+The upstream has no model called `gemini-3.8-flash`. Tier resolution exists
+precisely to turn that base name into a wire name, and the old build had none, so
+it sent a name the upstream does not have. The current build resolves it and
+returns 200 on both accounts.
+
+`raw_probe` is kept: asking the upstream directly about a spelling is something
+the normal routes cannot do by design, and that is exactly the question worth
+answering when a 404 appears.
+
+### The lesson worth keeping
+
+A stale binary is indistinguishable from a bug when the version string never
+changes. `--version` reported `0.1.0` for every build ever made, so nothing in the
+output said the binary was five days old.
+
+`build.rs` now stamps the build time and revision, and `--version` reports them:
+
+```text
+gravitygate 0.1.0 (built 2026-09-22T16:06:52Z, rev d0b42e1-dirty)
+```
+
+The timestamp is formatted at build time by arithmetic, so the binary carries no
+date handling, and `SOURCE_DATE_EPOCH` is honoured for reproducible builds. This
+is what should have caught the problem: the first thing to check when a command
+misbehaves is whether the binary is the one you think it is.
 
 ## Next, in order
 
