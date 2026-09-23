@@ -630,18 +630,35 @@ async fn cmd_probe(
 
     let repeat = repeat.max(1);
 
+    // `--raw` promises the whole body, so it must not inherit the display cap.
+    // The cap never affects the answer, only how much of the body is printed.
+    let body_limit = if raw {
+        usize::MAX
+    } else {
+        gravitygate::engine::PROBE_BODY_LIMIT
+    };
+
     // Repeating shares one engine, so the router's per-process state accumulates
     // across calls and rotation becomes observable.
     if repeat > 1 {
-        return probe_repeated(&engine, pinned.as_ref(), &model, &prompt, with_tool, repeat).await;
+        return probe_repeated(
+            &engine, pinned.as_ref(), &model, &prompt, with_tool, repeat, body_limit,
+        )
+        .await;
     }
 
     let outcome = if with_tool {
         engine
-            .probe_request(pinned.as_ref(), probe_request_with_tool(&model, &prompt))
+            .probe_request(
+                pinned.as_ref(),
+                probe_request_with_tool(&model, &prompt),
+                body_limit,
+            )
             .await
     } else {
-        engine.probe_request(pinned.as_ref(), probe_request(&model, &prompt)).await
+        engine
+            .probe_request(pinned.as_ref(), probe_request(&model, &prompt), body_limit)
+            .await
     };
 
     let report = match outcome {
@@ -760,8 +777,8 @@ async fn cmd_probe(
     println!();
     println!("--- raw response ---");
     println!("{}", report.body);
-    if report.truncated && !raw {
-        println!("(truncated; re-run with --raw for the full body)");
+    if report.truncated {
+        println!("(body truncated for display; re-run with --raw for the whole body)");
     }
 
     Ok(())
@@ -814,6 +831,7 @@ async fn probe_repeated(
     prompt: &str,
     with_tool: bool,
     repeat: u32,
+    body_limit: usize,
 ) -> Result<()> {
     println!("strategy  : {}", engine.config.accounts.strategy);
     println!("repeating : {repeat} request(s) in one process");
@@ -832,7 +850,7 @@ async fn probe_repeated(
 
         // Each iteration goes through the same engine, so the router sees a
         // fresh request against accumulated state.
-        let outcome = engine.probe_request(pinned, request).await;
+        let outcome = engine.probe_request(pinned, request, body_limit).await;
 
         match outcome {
             Ok(report) => {

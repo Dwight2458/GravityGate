@@ -30,7 +30,11 @@ use crate::upstream::sse::SseDecoder;
 use crate::upstream::transport::{TransportError, UpstreamClient};
 
 /// Longest probe body we will echo back before truncating.
-const PROBE_BODY_LIMIT: usize = 4096;
+///
+/// Display only: the response is always interpreted from the full decoded
+/// stream, so capping this cannot cost an answer. A caller that wants the whole
+/// body — `probe --raw` — passes a larger limit to `probe_request`.
+pub const PROBE_BODY_LIMIT: usize = 4096;
 
 /// Shared state for the whole gateway.
 pub struct Engine {
@@ -220,14 +224,21 @@ impl Engine {
             "max_tokens": 1024,
         }))
         .map_err(ProbeError::Serialise)?;
-        self.probe_request(Some(account), request).await
+        self.probe_request(Some(account), request, PROBE_BODY_LIMIT)
+            .await
     }
 
     /// Send a caller-supplied OpenAI request through the full pipeline.
+    ///
+    /// `body_limit` caps only the raw copy retained for display. The response is
+    /// interpreted from the full decoded stream either way, so a caller that
+    /// wants to print everything (`--raw`) can raise it without changing what
+    /// the probe concludes.
     pub async fn probe_request(
         &self,
         account: Option<&Account>,
         request: ChatCompletionRequest,
+        body_limit: usize,
     ) -> Result<ProbeReport, ProbeError> {
         let prepared = self.prepare(&request)?;
         let signatures_before = self.signatures.stats();
@@ -252,13 +263,11 @@ impl Engine {
             call.response.body,
             &mut translator,
             &self.signatures,
-            PROBE_BODY_LIMIT,
+            body_limit,
         )
         .await;
 
-        let parsed = serde_json::from_str::<Value>(&run.raw)
-            .ok()
-            .or_else(|| merge_sse_events(&run.raw));
+        let parsed = interpret_body(&run.raw, &run.events);
 
         // Assemble a non-streaming view from the same events, so a healthy probe
         // shows the answer a client would have received.
@@ -309,7 +318,7 @@ impl Engine {
             project_id: call.project_id.clone(),
             used_fallback_project: call.used_fallback_project,
             tier: call.tier.clone(),
-            trace_id: run_request_id(&run.raw),
+            trace_id: run.trace_id.clone().unwrap_or_default(),
             session_id: call.session_key.clone(),
             attempts: vec![ProbeAttempt {
                 endpoint: call.endpoint.clone(),
@@ -333,22 +342,6 @@ impl Engine {
                     .saturating_sub(signatures_before.session_signatures),
         })
     }
-}
-
-/// Pull the `requestId` out of an SSE body, for the probe report.
-fn run_request_id(body: &str) -> String {
-    // The envelope's requestId is not echoed back, so the first traceId stands
-    // in as a correlation handle for the report.
-    body.lines()
-        .filter_map(|line| line.strip_prefix("data:"))
-        .filter_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-        .find_map(|value| {
-            value
-                .get("traceId")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .unwrap_or_default()
 }
 
 /// An account with its token and project resolved.
@@ -520,9 +513,19 @@ fn format_attempts(attempts: &[ProbeAttempt]) -> String {
 
 /// What running a stream through the pipeline produced.
 struct StreamRun {
-    /// Raw upstream bytes, for diagnosis.
+    /// Raw upstream bytes, for diagnosis. Capped: once the limit is reached the
+    /// tail is dropped, so this is for display and must never be parsed for an
+    /// answer.
     raw: String,
     truncated: bool,
+    /// Every decoded event, in order, so the response is interpreted from the
+    /// whole stream rather than from the capped copy. Reading the answer out of
+    /// `raw` was a bug: a long response lost its tail to the cap, and with the
+    /// thinking prose filling the cap first, the answer that followed looked
+    /// like no answer at all.
+    events: Vec<Value>,
+    /// Trace id the upstream stamped on its events, for support requests.
+    trace_id: Option<String>,
     /// Chunks the translator emitted.
     chunks: usize,
     /// SSE lines that failed to parse.
@@ -531,10 +534,9 @@ struct StreamRun {
 
 /// Decode an upstream body and feed it through the response translator.
 ///
-/// This is the production path: every byte goes to the SSE decoder and every
-/// decoded event to the translator, while a copy is retained for the report.
-/// Retaining the copy must not affect what the translator sees, so truncation
-/// applies only to the copy.
+/// Every byte goes to the SSE decoder and every decoded event to the
+/// translator, while a copy is retained for the report. Retaining the copy must
+/// not affect what the translator sees, so truncation applies only to the copy.
 async fn drain_stream(
     mut stream: crate::upstream::transport::BodyStream,
     translator: &mut StreamTranslator,
@@ -548,6 +550,8 @@ async fn drain_stream(
     let mut truncated = false;
     let mut malformed = 0usize;
     let mut chunks = 0usize;
+    let mut events: Vec<Value> = Vec::new();
+    let mut trace_id: Option<String> = None;
 
     while let Some(chunk) = stream.next().await {
         let Ok(chunk) = chunk else {
@@ -565,8 +569,10 @@ async fn drain_stream(
         match decoder.push(&chunk) {
             Ok(decoded) => {
                 malformed += decoded.malformed;
-                for event in &decoded.events {
+                for event in decoded.events {
                     chunks += translator.on_payload(&event.payload, Some(cache)).len();
+                    trace_id = trace_id.or(event.trace_id);
+                    events.push(event.payload);
                 }
             }
             // A decoder that cannot make progress will not recover mid-stream.
@@ -576,8 +582,10 @@ async fn drain_stream(
 
     if let Ok(decoded) = decoder.finish() {
         malformed += decoded.malformed;
-        for event in &decoded.events {
+        for event in decoded.events {
             chunks += translator.on_payload(&event.payload, Some(cache)).len();
+            trace_id = trace_id.or(event.trace_id);
+            events.push(event.payload);
         }
     }
 
@@ -586,12 +594,29 @@ async fn drain_stream(
     StreamRun {
         raw: String::from_utf8_lossy(&raw).into_owned(),
         truncated,
+        events,
+        trace_id,
         chunks,
         malformed,
     }
 }
 
-/// Fold an SSE body into one response.
+/// Interpret an upstream body as one response.
+///
+/// A non-streaming body is a single JSON object and parses directly; a streaming
+/// one is folded from its decoded events. Folding the *events* rather than the
+/// raw text is what makes a long answer readable — `raw` is capped for display,
+/// so anything past the cap would otherwise be invisible here.
+fn interpret_body(raw: &str, events: &[Value]) -> Option<Value> {
+    serde_json::from_str::<Value>(raw)
+        .ok()
+        .or_else(|| merge_events(events))
+}
+
+/// Fold decoded payloads into one response.
+///
+/// The payloads arrive already unwrapped from their `{response, traceId}`
+/// envelope, in stream order.
 ///
 /// The upstream splits a single logical response across events: text arrives
 /// first, then a trailing event carries the signature with an *empty* text part
@@ -599,31 +624,18 @@ async fn drain_stream(
 /// reading only the first loses the finish reason and the signature, reading only
 /// the last loses the text. Parts therefore accumulate, while usage, finish
 /// reason, and model version are taken from the newest event.
-fn merge_sse_events(body: &str) -> Option<Value> {
+fn merge_events(events: &[Value]) -> Option<Value> {
     let mut parts: Vec<Value> = Vec::new();
     let mut newest: Option<Value> = None;
 
-    for line in body.lines() {
-        let Some(rest) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let rest = rest.trim();
-        if rest.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(rest) else {
-            continue;
-        };
-        // Streaming payloads wrap in `response`; a non-streaming body does not.
-        let event = value.get("response").cloned().unwrap_or(value);
-
+    for event in events {
         if let Some(event_parts) = event
             .pointer("/candidates/0/content/parts")
             .and_then(Value::as_array)
         {
             parts.extend(event_parts.iter().cloned());
         }
-        newest = Some(event);
+        newest = Some(event.clone());
     }
 
     let mut merged = newest?;
@@ -657,6 +669,17 @@ fn merge_sse_events(body: &str) -> Option<Value> {
 mod tests {
     use super::*;
 
+    /// Decode a body into payloads, the way the drain does.
+    fn decode(body: &str) -> Vec<Value> {
+        let mut decoder = SseDecoder::new();
+        let mut events = decoder
+            .push(body.as_bytes())
+            .expect("the body should decode")
+            .events;
+        events.extend(decoder.finish().expect("nothing should be pending").events);
+        events.into_iter().map(|event| event.payload).collect()
+    }
+
     #[test]
     fn sse_events_accumulate_their_parts() {
         let body = concat!(
@@ -667,7 +690,7 @@ mod tests {
 
 ",
         );
-        let parsed = merge_sse_events(body).expect("should find a payload");
+        let parsed = merge_events(&decode(body)).expect("should find a payload");
         let parts = parsed["candidates"][0]["content"]["parts"].as_array().unwrap();
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0]["text"], "first");
@@ -689,7 +712,7 @@ mod tests {
 ",
         );
 
-        let report = report_with(merge_sse_events(body));
+        let report = report_with(merge_events(&decode(body)));
         assert_eq!(report.text().as_deref(), Some("ok"));
         assert_eq!(report.finish_reason(), Some("STOP"));
         assert_eq!(report.signatures(), vec!["EvYDCvMDARFN"]);
@@ -705,7 +728,7 @@ mod tests {
 
 ",
         );
-        let parsed = merge_sse_events(body).unwrap();
+        let parsed = merge_events(&decode(body)).unwrap();
         assert_eq!(parsed["usageMetadata"]["candidatesTokenCount"], 42);
         assert_eq!(parsed["candidates"][0]["finishReason"], "STOP");
         assert_eq!(parsed["candidates"][0]["content"]["parts"][0]["text"], "x");
@@ -723,13 +746,13 @@ mod tests {
 
 ",
         );
-        let parsed = merge_sse_events(body).unwrap();
+        let parsed = merge_events(&decode(body)).unwrap();
         assert_eq!(parsed["candidates"][0]["content"]["parts"][0]["text"], "x");
         assert_eq!(parsed["usageMetadata"]["candidatesTokenCount"], 7);
     }
 
     #[test]
-    fn sse_merging_skips_malformed_and_unrelated_lines() {
+    fn merging_skips_malformed_and_unrelated_lines() {
         let body = concat!(
             ": keep-alive comment
 ",
@@ -742,20 +765,24 @@ mod tests {
             "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"a\"}]}}]}}
 ",
         );
-        let parsed = merge_sse_events(body).unwrap();
+        let parsed = merge_events(&decode(body)).unwrap();
         assert_eq!(parsed["candidates"][0]["content"]["parts"][0]["text"], "a");
     }
 
     #[test]
-    fn sse_merging_returns_none_for_plain_json() {
-        // A non-streaming body is handled by a direct parse; this path must not
-        // claim it.
-        assert!(merge_sse_events(r#"{"candidates":[]}"#).is_none());
+    fn interpreting_a_plain_json_body_parses_it_directly() {
+        // A non-streaming body is a single JSON object with no `data:` lines for
+        // the decoder to find; the direct parse is what handles it, and the
+        // event fold must not claim it on its own.
+        let body = r#"{"candidates":[]}"#;
+        assert!(merge_events(&decode(body)).is_none());
+        let parsed = interpret_body(body, &decode(body)).expect("a plain body parses");
+        assert_eq!(parsed["candidates"], serde_json::json!([]));
     }
 
     #[test]
-    fn sse_merging_returns_none_for_an_empty_body() {
-        assert!(merge_sse_events("").is_none());
+    fn interpreting_an_empty_body_yields_nothing() {
+        assert!(interpret_body("", &decode("")).is_none());
     }
 
     #[tokio::test]
@@ -810,6 +837,56 @@ mod tests {
         assert!(run.truncated, "the copy is over the limit");
         assert!(run.raw.len() <= 40);
         assert_eq!(run.chunks, 3, "both text chunks still reached the client");
+    }
+
+    #[tokio::test]
+    async fn an_answer_past_the_raw_cap_is_still_read() {
+        // The bug this guards: the report folded the *capped* copy, so once
+        // reasoning had filled the cap the answer that followed was invisible,
+        // and a long response looked like an empty one.
+        let body = concat!(
+            "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"deliberating at some length\",\"thought\":true}]}}]}}\n",
+            "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"the answer\"}]}}]}}\n",
+        );
+        let stream = body_stream(vec![Ok(bytes::Bytes::from(body))]);
+        let mut translator = StreamTranslator::new(ResponseOptions::new(
+            "m",
+            crate::registry::ModelFamily::Gemini,
+            "s",
+        ));
+        let cache = SignatureCache::new();
+
+        // A cap that the first event alone already exceeds.
+        let run = drain_stream(stream, &mut translator, &cache, 32).await;
+
+        assert!(run.truncated);
+        assert!(
+            !run.raw.contains("the answer"),
+            "the answer is past the cap, so the copy cannot be where it came from"
+        );
+        assert_eq!(run.events.len(), 2, "every event is retained");
+
+        let report = report_with(interpret_body(&run.raw, &run.events));
+        assert_eq!(report.text().as_deref(), Some("the answer"));
+        assert_eq!(
+            report.reasoning().as_deref(),
+            Some("deliberating at some length")
+        );
+    }
+
+    #[tokio::test]
+    async fn the_trace_id_comes_from_the_decoded_envelope() {
+        let body = "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}]}}]},\"traceId\":\"trace-42\"}\n";
+        let stream = body_stream(vec![Ok(bytes::Bytes::from(body))]);
+        let mut translator = StreamTranslator::new(ResponseOptions::new(
+            "m",
+            crate::registry::ModelFamily::Gemini,
+            "s",
+        ));
+        let cache = SignatureCache::new();
+
+        let run = drain_stream(stream, &mut translator, &cache, 4096).await;
+        assert_eq!(run.trace_id.as_deref(), Some("trace-42"));
     }
 
     #[tokio::test]

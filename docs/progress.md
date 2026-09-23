@@ -630,8 +630,11 @@ name and a placeholder beats a failure.
 
 ### Not verified
 
-The Responses route has not been driven by a real client — only by hand-written
-requests. Codex CLI is the obvious candidate and would be the next thing to try.
+The Responses route has since been driven by the official OpenAI Python SDK —
+`responses.create` non-streaming and streaming, a tool call, and a
+`function_call_output` replay — so the hand-written-request stage is over. Codex
+CLI remains untried, and it is the client that would exercise an agent loop rather
+than one call at a time.
 
 ## The 404 that was a stale binary
 
@@ -679,14 +682,99 @@ date handling, and `SOURCE_DATE_EPOCH` is honoured for reproducible builds. This
 is what should have caught the problem: the first thing to check when a command
 misbehaves is whether the binary is the one you think it is.
 
+## The probe reported an empty answer
+
+`gravitygate probe` reported an empty answer for responses that plainly had one,
+and the streaming translator had produced the whole thing. The report simply was
+not reading it.
+
+`drain_stream` decoded every byte and fed every event to the translator, but kept
+only the first 4 KiB of the body for the report, and the report then reconstructed
+the answer by folding that copy. With thinking enabled the reasoning prose arrives
+first, so a long reasoning phase filled the cap before the first answer token was
+ever streamed, and the fold found nothing but thoughts. `text()` filters thoughts
+out by design — which is what keeps reasoning from being printed as the reply — so
+the result was an empty answer where a long one belonged.
+
+The cap is a display concern and now stays one. The run keeps every decoded event
+and the report folds those; `raw` is still what `--raw` prints and what an attempt
+records, and the report still says when it truncated. Fixing it also moved two
+smaller things off the capped copy:
+
+- The trace id now comes from the decoded `{response, traceId}` envelope instead
+  of being re-parsed out of the truncated text.
+- The string-scanning fold is gone. It was a second implementation of the merge,
+  operating on text the decoder had already parsed, and the tests that covered it
+  now drive the real path instead: bytes through the decoder into the fold, with a
+  case where the answer lies past the cap and the copy cannot be its source.
+
+One promise the cap had quietly broken: `--raw` is documented as printing the
+whole body, but it inherited the same 4 KiB limit, and the truncation notice was
+suppressed *because* `--raw` was set — so the flag printed a truncated body with
+no indication that anything was missing. The limit is now a parameter of
+`probe_request`, the default call keeps 4 KiB, and `--raw` passes no limit at all.
+Measured after the change: the default body comes back at 4173 bytes with the
+notice, `--raw` at 18 690 bytes with no notice and a final event that parses.
+
+### The thinking text was never withheld
+
+The earlier note that Gemini "returns a signature and a `thoughtsTokenCount` but
+no thinking text" does not hold up as stated. Thinking text comes back for most
+configs; the config being probed was part of the problem. Measured with
+`raw_probe`, which never had the cap:
+
+| Wire model | `thinkingConfig` | Prompt | `thoughtsTokenCount` | thinking text |
+|---|---|---|---|---|
+| `gemini-3.8-flash-high` | `{"includeThoughts":true}` | reasoning task | 270 | **none** |
+| `gemini-3.8-flash-high` | `+{"thinkingBudget":1000}` | reasoning task | 147 | **none** |
+| `gemini-3.8-flash-high` | `+{"thinkingBudget":10000}` | reasoning task | 343 | **none** |
+| `gemini-3.8-flash-high` | `+{"thinkingBudget":-1}` | reasoning task | 473 | 192 chars |
+| `gemini-3.8-flash-high` | `+{"thinkingBudget":-1}` | trivial | 396 | 175 chars |
+| `gemini-3.8-flash-high` | `+{"thinkingLevel":"high"}` | reasoning task | 541 | 141 chars |
+| `gemini-3.8-flash-medium` | `+{"thinkingBudget":4000}` | design task | 1596 | 1950 chars |
+| `gemini-3.8-flash-medium` | `+{"thinkingBudget":4000}` | trivial | 210–237 | **none** (twice) |
+| `gemini-3.6-flash-high` | `+{"thinkingBudget":10000}` | reasoning task | 753 | 352 chars |
+| `gemini-pro-agent` | `+{"thinkingBudget":10001}` | reasoning task | 835 | 1113 chars |
+
+Two things follow, and only the first is tidy:
+
+- A positive `thinkingBudget` on a `gemini-3.8-flash-high` wire name never
+  returned text, across three budgets, while `-1` on the same model did. Every
+  tier route the gateway resolves reaches a config that can return text —
+  including the `-1` the catalogue records for the high tier of 3.7 and 3.8
+  Flash, which is now explained rather than merely copied from a capture.
+- Beyond that, text is intermittent rather than guaranteed. A trivial prompt on
+  the default `-medium` route returned 210–237 thinking tokens and no text, twice,
+  on a config that returned 1950 characters for a substantial one. So the token
+  count really is no evidence of anything, exactly as the diagnostic tool's own
+  doc comment warns.
+
+Nothing in the translation layer needed to change: a response with
+`reasoning_tokens` and no reasoning deltas is a shape the gateway already
+produces, and the chat route's `reasoning` line and the Responses route's
+reasoning items simply stay empty when the upstream sends none.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and
 polish rather than features:
 
-1. **A real client on each route.** Codex CLI against `/v1/responses`, and any
-   OpenAI SDK against `/v1/chat/completions`, would exercise the parts a
-   hand-written request does not.
-2. **A Claude tool loop.** Blocked on the thinking/tool-choice constraint above,
+1. **Codex CLI against `/v1/responses`.** The official OpenAI Python SDK now
+   drives both routes end to end: chat non-streaming and streaming, a tool call
+   with its result replayed on a second turn, Responses non-streaming and
+   streaming, a `function_call_output` replay, `stream_options.include_usage`,
+   and `/v1/models`. Codex would add what an SDK does not — an agent loop
+   choosing its own requests.
+2. **The usage numbers are internally inconsistent.** A live chat completion
+   reported `completion_tokens: 1` next to `reasoning_tokens: 84`, with
+   `total_tokens: 7`. The identity a client relies on holds
+   (`total = prompt + completion`), but OpenAI's convention is that reasoning
+   tokens are a *subset* of completion tokens — `completion = answer + thinking`
+   — so `reasoning_tokens` exceeding `completion_tokens` is a shape no OpenAI
+   client expects. Reporting thinking under `completion_tokens_details` instead
+   of folding it into `completion_tokens` was a deliberate call, written into
+   `UsageMetadata::candidates_tokens`, but nothing records why that convention
+   beat OpenAI's. Cost accounting and context budgeting read these numbers.
+3. **A Claude tool loop.** Blocked on the thinking/tool-choice constraint above,
    not on the gateway.
-3. **Live rate-limit handling.** Still covered by unit tests only.
+4. **Live rate-limit handling.** Still covered by unit tests only.
