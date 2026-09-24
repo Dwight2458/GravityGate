@@ -222,7 +222,7 @@ pub fn record(
     }
     if let Some(usage) = usage {
         metrics::record_tokens(label, "prompt", usage.prompt_tokens());
-        metrics::record_tokens(label, "completion", usage.candidates_tokens());
+        metrics::record_tokens(label, "completion", usage.completion_tokens());
         metrics::record_tokens(label, "cached", usage.cached_content_token_count);
         metrics::record_tokens(label, "reasoning", usage.thoughts_token_count);
     }
@@ -235,7 +235,7 @@ pub fn record(
         outcome: outcome_name(outcome).to_string(),
         attempts,
         prompt_tokens: usage.map(UsageMetadata::prompt_tokens).unwrap_or(0),
-        completion_tokens: usage.map(UsageMetadata::candidates_tokens).unwrap_or(0),
+        completion_tokens: usage.map(UsageMetadata::completion_tokens).unwrap_or(0),
         cached_tokens: usage.map(|u| u.cached_content_token_count).unwrap_or(0),
         reasoning_tokens: usage.map(|u| u.thoughts_token_count).unwrap_or(0),
         latency_ms: elapsed.as_millis() as i64,

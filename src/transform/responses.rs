@@ -350,7 +350,7 @@ pub struct OutputTokensDetails {
 impl ResponsesUsage {
     pub fn from_ir(usage: &UsageMetadata) -> Self {
         let input = usage.prompt_tokens();
-        let output = usage.candidates_tokens();
+        let output = usage.completion_tokens();
         Self {
             input_tokens: input,
             output_tokens: output,
@@ -1142,8 +1142,8 @@ mod tests {
         };
         let converted = ResponsesUsage::from_ir(&usage);
         assert_eq!(converted.input_tokens, 60);
-        assert_eq!(converted.output_tokens, 20);
-        assert_eq!(converted.total_tokens, 80);
+        assert_eq!(converted.output_tokens, 35);
+        assert_eq!(converted.total_tokens, 95);
         assert_eq!(converted.input_tokens_details.cached_tokens, 40);
         assert_eq!(converted.output_tokens_details.reasoning_tokens, 15);
     }

@@ -304,12 +304,11 @@ impl UsageMetadata {
         (self.prompt_token_count - self.cached_content_token_count).max(0)
     }
 
-    /// Completion tokens, derived when the upstream omits the count.
+    /// Candidate answer tokens (excluding thinking tokens).
     ///
-    /// `totalTokenCount` covers prompt, candidates, *and* thinking, so it cannot
-    /// be used directly as the completion count. Subtracting the parts we do
-    /// know isolates the candidate count, which is what an OpenAI client expects:
-    /// thinking is reported separately as `reasoning_tokens`.
+    /// The upstream separates candidate answer tokens from thinking tokens.
+    /// When `candidatesTokenCount` is absent, it is derived by subtracting
+    /// prompt and thinking tokens from the total.
     pub fn candidates_tokens(&self) -> i64 {
         if let Some(explicit) = self.candidates_token_count {
             return explicit.max(0);
@@ -318,6 +317,17 @@ impl UsageMetadata {
             return 0;
         };
         (total - self.prompt_token_count - self.thoughts_token_count).max(0)
+    }
+
+    /// Total completion tokens: answer tokens PLUS thinking tokens.
+    ///
+    /// Matches OpenAI's convention: `completion_tokens` measures the whole
+    /// generation, and `completion_tokens_details.reasoning_tokens` is reported
+    /// as a subset of it (rather than sitting alongside as a disjoint count).
+    ///
+    /// Consequently: `total_tokens = prompt_tokens + completion_tokens`.
+    pub fn completion_tokens(&self) -> i64 {
+        self.candidates_tokens() + self.thoughts_token_count.max(0)
     }
 
     /// Whether any token accounting at all is present.
@@ -431,13 +441,13 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(usage.candidates_tokens(), 20);
+        assert_eq!(usage.completion_tokens(), 30);
     }
 
     #[test]
     fn candidate_count_is_derived_when_absent() {
         // The live shape: no candidates count, but a total that includes
-        // thinking. Completion tokens exclude thinking, which is reported
-        // separately.
+        // thinking.
         let usage = UsageMetadata {
             prompt_token_count: 9,
             candidates_token_count: None,
@@ -446,6 +456,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(usage.candidates_tokens(), 5);
+        assert_eq!(usage.completion_tokens(), 21);
     }
 
     #[test]

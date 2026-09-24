@@ -261,7 +261,7 @@ pub fn map_finish_reason(upstream: Option<&str>, saw_tool_call: bool) -> String 
 /// Convert accumulated token counts into OpenAI's shape.
 pub fn to_usage(usage: &IrUsage) -> Usage {
     let prompt_tokens = usage.prompt_tokens();
-    let completion_tokens = usage.candidates_tokens();
+    let completion_tokens: i64 = usage.completion_tokens();
     Usage {
         prompt_tokens,
         completion_tokens,
@@ -900,8 +900,8 @@ mod tests {
         let completion = to_completion(&[], Some(&usage), None, &options(), None);
         let usage = completion.usage.unwrap();
         assert_eq!(usage.prompt_tokens, 60);
-        assert_eq!(usage.completion_tokens, 20);
-        assert_eq!(usage.total_tokens, 80);
+        assert_eq!(usage.completion_tokens, 35);
+        assert_eq!(usage.total_tokens, 95);
         assert_eq!(usage.prompt_tokens_details.unwrap().cached_tokens, 40);
         assert_eq!(usage.completion_tokens_details.unwrap().reasoning_tokens, 15);
     }
@@ -1242,7 +1242,7 @@ mod tests {
             true,
         );
         let usage = chunks.last().unwrap().usage.as_ref().unwrap();
-        assert_eq!(usage.completion_tokens, 5);
+        assert_eq!(usage.completion_tokens, 21);
         assert_eq!(usage.completion_tokens_details.as_ref().unwrap().reasoning_tokens, 16);
     }
 

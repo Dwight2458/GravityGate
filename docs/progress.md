@@ -754,6 +754,36 @@ Nothing in the translation layer needed to change: a response with
 produces, and the chat route's `reasoning` line and the Responses route's
 reasoning items simply stay empty when the upstream sends none.
 
+## The usage numbers follow OpenAI's convention
+
+The first live SDK pass reported `completion_tokens: 1` next to
+`reasoning_tokens: 84`, with `total_tokens: 7`. The identity
+`total = prompt + completion` held, but `reasoning_tokens` exceeded
+`completion_tokens` — a shape no OpenAI client expects, because OpenAI's
+convention is that reasoning tokens are a *subset* of completion tokens:
+`completion = answer + thinking`.
+
+The mapping had treated completion as the visible answer only, with thinking
+reported solely under `completion_tokens_details`. That was a deliberate call at
+the time — the derivation lives in `UsageMetadata::candidates_tokens` — but it
+lost to the convention the clients actually code against, so it is now the other
+way: `UsageMetadata::completion_tokens()` returns candidates **plus** thinking,
+`to_usage` and the Responses `ResponsesUsage::from_ir` both use it for
+`completion_tokens` / `output_tokens`, and the audit record and the metrics use
+it too. `reasoning_tokens` is unchanged: it stays the thinking-only breakdown
+inside the details object.
+
+Measured after the change, all three shapes satisfy both identities:
+
+```text
+chat:        completion=350 reasoning=276 total=374
+responses:   output=330     reasoning=269 total=354
+chat stream: completion=274 reasoning=211 total=298
+```
+
+The dashboard's "Completion" card now counts thinking as well, which is what a
+reader comparing it against the provider's own billing expects.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and
@@ -765,16 +795,6 @@ polish rather than features:
    streaming, a `function_call_output` replay, `stream_options.include_usage`,
    and `/v1/models`. Codex would add what an SDK does not — an agent loop
    choosing its own requests.
-2. **The usage numbers are internally inconsistent.** A live chat completion
-   reported `completion_tokens: 1` next to `reasoning_tokens: 84`, with
-   `total_tokens: 7`. The identity a client relies on holds
-   (`total = prompt + completion`), but OpenAI's convention is that reasoning
-   tokens are a *subset* of completion tokens — `completion = answer + thinking`
-   — so `reasoning_tokens` exceeding `completion_tokens` is a shape no OpenAI
-   client expects. Reporting thinking under `completion_tokens_details` instead
-   of folding it into `completion_tokens` was a deliberate call, written into
-   `UsageMetadata::candidates_tokens`, but nothing records why that convention
-   beat OpenAI's. Cost accounting and context budgeting read these numbers.
-3. **A Claude tool loop.** Blocked on the thinking/tool-choice constraint above,
+2. **A Claude tool loop.** Blocked on the thinking/tool-choice constraint above,
    not on the gateway.
-4. **Live rate-limit handling.** Still covered by unit tests only.
+3. **Live rate-limit handling.** Still covered by unit tests only.
