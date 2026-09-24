@@ -1,1 +1,7 @@
 /target
+
+# ZCode's own working files — session plans, agent state, and the tool's
+# ignore file. They change with every session and belong to whoever is
+# driving, so they stay on disk but out of the history.
+.zcode/
+.zcodeignore
