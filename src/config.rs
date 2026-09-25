@@ -158,6 +158,12 @@ pub struct AccountsConfig {
     /// How often quota is refreshed, in seconds.
     pub quota_refresh_secs: u64,
     /// Token bucket ceiling per account.
+    ///
+    /// Ten, not more: the bucket exists so a burst stops here instead of
+    /// reaching the upstream's own rate limit, and fifty let twenty
+    /// thinking-heavy requests through in two minutes — which is exactly how a
+    /// free-tier quota got exhausted. Interactive agents fit in ten; anything
+    /// heavier should raise this deliberately.
     pub token_bucket_max: f64,
     /// Token bucket refill rate per minute.
     pub token_bucket_refill_per_min: f64,
@@ -171,7 +177,7 @@ impl Default for AccountsConfig {
             max_consecutive_failures: 3,
             soft_quota_threshold: 0.20,
             quota_refresh_secs: 30 * 60,
-            token_bucket_max: 50.0,
+            token_bucket_max: 10.0,
             token_bucket_refill_per_min: 6.0,
         }
     }

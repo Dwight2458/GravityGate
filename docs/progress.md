@@ -784,6 +784,68 @@ chat stream: completion=274 reasoning=211 total=298
 The dashboard's "Completion" card now counts thinking as well, which is what a
 reader comparing it against the provider's own billing expects.
 
+## Two operator traps: duplicate accounts and a hold that never cleared
+
+Both were found the same evening, from the outside: an `account list` that showed
+one Google account three times, and an account stuck in `verify` even after its
+holder had completed the challenge in the browser.
+
+### A re-login used to become a second pool entry
+
+`upsert_account` deduplicated on the credential id, which is derived from the
+refresh token. That guard is airtight against adding the same token twice, and
+useless against its most common near-miss: every `account login` mints a *fresh*
+refresh token, so a second login of one Google account arrived as a brand-new
+credential and became a brand-new pool entry. Three logins produced three
+entries with one email, and since all of them draw on the *same* upstream quota,
+rotation between them gained nothing while every quota exhaustion cost two extra
+guaranteed-429 requests — each of which marked another entry as limited. The
+list showed one account limited three times with countdowns seconds apart.
+
+The match now falls back to identity: an add whose email matches an existing
+entry, and whose project does not contradict it, replaces the stored credential
+in place. A missing project on either side is compatible, because `login` learns
+the project later, at first use. The same account with a *different* project
+still becomes a separate entry — that is the packed
+`refresh|project|managedProject` form doing its job. Replacement drops
+verification holds and cooldowns — the fresh credential deserves a fresh
+judgment — but keeps recorded rate limits: same account, same quota pool, and a
+re-login must not launder away a limit the upstream is still enforcing.
+
+### The verification hold had no way to end
+
+`verification_required` blocked dispatch with no expiry, and the doc comment said
+so: blocked "until an operator clears this". Worse, nothing cleared it — not a
+served request, not `account verify` (whose discovery path never touched the
+persisted flag). An operator who completed the challenge saw the status stay
+`verify` forever, and remove-plus-re-login was the only exit.
+
+The hold now expires into a recheck window: 1 minute, then 5, 15, and 60, one
+rung per re-assertion. When the window opens the account becomes dispatchable
+again, and the next real request settles the question — a success clears the
+hold (`record_success` now does this, as does `account verify` on a successful
+discovery), while a fresh 403 re-arms it one rung further out. The status line
+says where the account stands: `verify, recheck in 2m, <url>`, then `recheck
+due`. Accounts marked by older builds carry no window at all and count as due
+immediately, so pre-existing holds self-heal too. `clear-holds` remains for
+impatience.
+
+The demand itself — a 403 carrying `validation_required` — is Google's
+risk-based challenge, and it is common for accounts enabling the service for the
+first time. That part is upstream. The part that kept a verified account benched
+was ours.
+
+### Two smaller calibrations
+
+- The "every account is rate limited; waiting" log printed whole seconds, so a
+  400 ms token-bucket refill wait appeared as `waiting seconds=0` — correct
+  behavior dressed as a bug. It now logs milliseconds.
+- The token bucket's default ceiling dropped from 50 to 10 per account. The
+  bucket exists so a burst stops before the upstream's rate limiter sees it, and
+  fifty let twenty thinking-heavy requests through in two minutes, which is how
+  the free-tier quota got exhausted in the first place. Refill stays at six per
+  minute; both are config knobs.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and

@@ -25,10 +25,13 @@ use std::sync::Mutex;
 use crate::config::Strategy;
 
 /// Token bucket ceiling, per account.
-pub const DEFAULT_TOKEN_MAX: f64 = 50.0;
+///
+/// Deliberately small: the bucket's whole job is to stop a burst before the
+/// upstream's rate limiter sees it, and a large ceiling defeats that.
+pub const DEFAULT_TOKEN_MAX: f64 = 10.0;
 
-/// Tokens returned per minute. Six per minute against a ceiling of fifty means
-/// a sustained rate of one request every ten seconds per account.
+/// Tokens returned per minute. Six per minute against a ceiling of ten means a
+/// sustained rate of one request every ten seconds per account.
 pub const DEFAULT_TOKEN_REFILL_PER_MIN: f64 = 6.0;
 
 pub const DEFAULT_HEALTH_INITIAL: f64 = 70.0;

@@ -232,36 +232,60 @@ struct UpsertOutcome {
     updated: bool,
 }
 
-/// Insert an account, or update it in place if its credentials are already known.
+/// Insert an account, or update it in place when it is already known.
 ///
-/// Updating in place matters: adding the same refresh token twice must not create
-/// two entries that split traffic between them and accumulate rate limits
-/// independently.
+/// Two kinds of "already known" matter, and only one is caught by the
+/// credential id:
+///
+/// - **Same refresh token**: the credential id matches, so the entry is
+///   updated.
+/// - **Same Google account, re-logged-in**: every login mints a fresh refresh
+///   token, so the ids never match. Matching on email and project instead
+///   replaces the credential in place. Otherwise a second login becomes a
+///   second pool entry that draws on the *same* upstream quota: rotation gains
+///   nothing, every exhaustion costs extra guaranteed-429 requests, and the
+///   list shows one account three times.
+///
+/// The same account with a *different* project stays a separate entry — that is
+/// the point of the packed `refresh|project|managedProject` form, and different
+/// projects draw from different quota.
 fn upsert_account(store: &AccountStore, account: Account) -> Result<UpsertOutcome> {
     let credential_id = account.credential_id();
     let label = account.label();
     let mut updated = false;
 
     store.mutate(|storage| {
+        // Same credential is the cheapest and most precise match.
         if let Some(existing) = storage
             .accounts
             .iter_mut()
             .find(|existing| existing.credential_id() == credential_id)
         {
-            if account.email.is_some() {
-                existing.email = account.email.clone();
-            }
-            if account.project_id.is_some() {
-                existing.project_id = account.project_id.clone();
-            }
-            if account.managed_project_id.is_some() {
-                existing.managed_project_id = account.managed_project_id.clone();
-            }
-            // Re-adding is an explicit statement of intent, so re-enable.
-            existing.enabled = true;
+            replace_credential(existing, account);
             updated = true;
             return true;
         }
+
+        // Same email and compatible project: a re-login of an account already
+        // in the pool. A missing project on either side is compatible because
+        // login learns the project later, at first use.
+        let same_pool = |existing: &Account| {
+            existing.email.is_some()
+                && existing.email == account.email
+                && (account.project_id.is_none()
+                    || existing.project_id.is_none()
+                    || existing.project_id == account.project_id)
+        };
+        if let Some(existing) = storage
+            .accounts
+            .iter_mut()
+            .find(|existing| same_pool(existing))
+        {
+            replace_credential(existing, account);
+            updated = true;
+            return true;
+        }
+
         storage.accounts.push(account);
         true
     })?;
@@ -271,6 +295,31 @@ fn upsert_account(store: &AccountStore, account: Account) -> Result<UpsertOutcom
         short_id: credential_id[..8].to_string(),
         updated,
     })
+}
+
+/// Overwrite `existing` with the freshly added `account`.
+fn replace_credential(existing: &mut Account, account: Account) {
+    existing.refresh_token = account.refresh_token;
+    if account.email.is_some() {
+        existing.email = account.email;
+    }
+    if account.project_id.is_some() {
+        existing.project_id = account.project_id;
+    }
+    if account.managed_project_id.is_some() {
+        existing.managed_project_id = account.managed_project_id;
+    }
+    // Re-adding is an explicit statement of intent: the fresh credential gets a
+    // fresh judgment, so verification holds and cooldowns are dropped. Rate
+    // limits stay — same account, same upstream quota pool — because a re-login
+    // must not launder away a limit the upstream is still enforcing.
+    existing.enabled = true;
+    existing.clear_verification();
+    existing.account_ineligible = false;
+    existing.account_ineligible_at = None;
+    existing.account_ineligible_reason = None;
+    existing.cooling_down_until = None;
+    existing.cooldown_reason = None;
 }
 
 fn report_upsert(outcome: &UpsertOutcome) {
@@ -389,13 +438,19 @@ fn describe_status(account: &Account, now: i64) -> (&'static str, String) {
         );
     }
     if account.verification_required {
-        return (
-            "verify",
-            account
-                .verification_url
-                .clone()
-                .unwrap_or_else(|| "verification required".into()),
-        );
+        // The hold is not indefinite: dispatch re-tests it once the recheck
+        // window opens, and a served request clears it. Saying when keeps the
+        // operator from concluding, wrongly, that finishing the challenge did
+        // nothing.
+        let when = match account.verification_recheck_at {
+            Some(at) if at > now => format!("recheck in {}", humanise_ms(at - now)),
+            _ => "recheck due".to_string(),
+        };
+        let url = account
+            .verification_url
+            .clone()
+            .unwrap_or_else(|| "verification required".into());
+        return ("verify", format!("{when}, {url}"));
     }
     if let Some(until) = account.cooling_down_until.filter(|until| *until > now) {
         let reason = account
@@ -562,6 +617,24 @@ async fn verify_accounts(
 
         match engine.prepare_account(account).await {
             Ok(prepared) => {
+                // Discovery succeeded, so the credential works. Whatever
+                // verification hold was recorded is stale — clear it, or the
+                // account would stay in `verify` forever.
+                store
+                    .mutate(|storage| {
+                        match storage
+                            .accounts
+                            .iter_mut()
+                            .find(|stored| stored.credential_id() == account.credential_id())
+                        {
+                            Some(stored) => {
+                                stored.clear_verification();
+                                true
+                            }
+                            None => false,
+                        }
+                    })
+                    .ok();
                 println!("  tier      : {}", prepared.tier);
                 if prepared.used_fallback_project {
                     println!(
@@ -952,7 +1025,7 @@ cooldown_secs = 60
 max_consecutive_failures = 3
 soft_quota_threshold = 0.20
 quota_refresh_secs = 1800
-token_bucket_max = 50.0
+token_bucket_max = 10.0
 token_bucket_refill_per_min = 6.0
 
 [routing]
@@ -989,6 +1062,100 @@ retention_days = 30
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gravitygate::accounts::account::now_ms;
+    use std::fs;
+
+    /// A store on a throwaway path, for the upsert tests.
+    fn temp_store(label: &str) -> AccountStore {
+        let dir = std::env::temp_dir().join(format!(
+            "gravitygate-upsert-{label}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        AccountStore::load(dir.join("accounts.json")).unwrap()
+    }
+
+    fn account_with(token: &str, email: &str, project: Option<&str>) -> Account {
+        let mut account = Account::new(token);
+        account.email = Some(email.into());
+        account.project_id = project.map(str::to_string);
+        account
+    }
+
+    #[test]
+    fn a_relogin_replaces_the_existing_entry_rather_than_duplicating_it() {
+        // Every login mints a fresh refresh token, so the credential ids never
+        // match; the email is what identifies the account.
+        let store = temp_store("relogin");
+        upsert_account(&store, account_with("token-a", "one@example.com", Some("proj-1")))
+            .unwrap();
+        upsert_account(&store, account_with("token-b", "one@example.com", None)).unwrap();
+
+        let storage = store.snapshot();
+        assert_eq!(storage.accounts.len(), 1, "no duplicate entry");
+        assert_eq!(storage.accounts[0].refresh_token, "token-b");
+        assert_eq!(
+            storage.accounts[0].project_id.as_deref(),
+            Some("proj-1"),
+            "the learned project survives a login that does not name one"
+        );
+    }
+
+    #[test]
+    fn the_same_account_on_a_different_project_stays_a_separate_entry() {
+        let store = temp_store("multi-project");
+        upsert_account(&store, account_with("token-a", "one@example.com", Some("proj-1")))
+            .unwrap();
+        upsert_account(&store, account_with("token-b", "one@example.com", Some("proj-2")))
+            .unwrap();
+
+        assert_eq!(store.snapshot().accounts.len(), 2);
+    }
+
+    #[test]
+    fn replacing_a_credential_drops_holds_but_keeps_rate_limits() {
+        // The fresh credential deserves a fresh judgment, so verification and
+        // cooldowns go. The upstream quota is the same pool, so a recorded
+        // limit stays: a re-login must not launder it away.
+        let store = temp_store("holds");
+        upsert_account(&store, account_with("token-a", "one@example.com", None)).unwrap();
+
+        store
+            .mutate(|storage| {
+                let account = &mut storage.accounts[0];
+                account.mark_verification_required(Some("https://x".into()), "asked");
+                account.mark_cooling_down(i64::MAX, CooldownReason::AuthFailure);
+                account.mark_rate_limited("gemini", now_ms() + 60_000);
+                true
+            })
+            .unwrap();
+
+        upsert_account(&store, account_with("token-b", "one@example.com", None)).unwrap();
+
+        let account = &store.snapshot().accounts[0];
+        assert!(!account.verification_required);
+        assert!(account.cooling_down_until.is_none());
+        assert!(
+            account.is_rate_limited("gemini", now_ms()),
+            "the upstream limit outlives a re-login"
+        );
+    }
+
+    #[test]
+    fn an_account_without_an_email_cannot_be_matched_by_email() {
+        // `add-token` without --email: with no identity to compare, adding must
+        // not overwrite an unrelated entry.
+        let store = temp_store("no-email");
+        upsert_account(&store, account_with("token-a", "one@example.com", None)).unwrap();
+
+        let mut anonymous = Account::new("token-b");
+        anonymous.project_id = Some("proj-1".into());
+        upsert_account(&store, anonymous).unwrap();
+
+        assert_eq!(store.snapshot().accounts.len(), 2);
+    }
 
     #[test]
     fn humanise_formats_each_magnitude() {
@@ -997,6 +1164,24 @@ mod tests {
         assert_eq!(humanise_ms(90_000), "1m30s");
         assert_eq!(humanise_ms(3_600_000), "1h00m");
         assert_eq!(humanise_ms(7_800_000), "2h10m");
+    }
+
+    #[test]
+    fn the_verify_status_names_when_the_recheck_happens() {
+        // An operator who has just completed the challenge should be able to
+        // tell from the list that the gateway will notice on its own.
+        let now = now_ms();
+        let mut account = Account::new("t");
+        account.mark_verification_required(Some("https://accounts.google.com/x".into()), "asked");
+
+        let (status, detail) = describe_status(&account, now);
+        assert_eq!(status, "verify");
+        assert!(detail.starts_with("recheck in "), "got {detail}");
+        assert!(detail.contains("https://accounts.google.com/x"));
+
+        account.verification_recheck_at = Some(now - 1);
+        let (_, detail) = describe_status(&account, now);
+        assert!(detail.starts_with("recheck due"), "got {detail}");
     }
 
     #[test]

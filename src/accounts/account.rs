@@ -67,8 +67,12 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cooldown_reason: Option<CooldownReason>,
 
-    /// Set when the upstream demands account-holder verification. Requests are
-    /// blocked until an operator clears this.
+    /// Set when the upstream demands account-holder verification.
+    ///
+    /// The hold blocks dispatch only until the recheck window opens
+    /// ([`Self::verification_recheck_at`]): completing the challenge in the
+    /// browser is invisible to the gateway, so the only way to learn it is to
+    /// let a real request through and see what the upstream says.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub verification_required: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,6 +83,13 @@ pub struct Account {
     /// can act on it without digging through logs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verification_url: Option<String>,
+    /// When dispatch may test the hold again, in epoch milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verification_recheck_at: Option<i64>,
+    /// How many times the hold has been (re)asserted, which sets the recheck
+    /// interval. Reset when the upstream serves the account again.
+    #[serde(default)]
+    pub verification_attempts: u32,
 
     /// Set when the upstream reports the account as ineligible.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -101,6 +112,25 @@ fn default_true() -> bool {
     true
 }
 
+/// How long a verification hold waits before letting dispatch re-check it,
+/// indexed by how many times the hold has been asserted minus one.
+///
+/// Escalating, because a hold that keeps re-asserting itself is probably real
+/// and each re-check costs a guaranteed 403. The first window is short on
+/// purpose: the common case is an operator who has just completed the
+/// challenge in the browser, and minutes of delay after that is dead time.
+const VERIFICATION_RECHECK_LADDER_MS: &[i64] = &[
+    60 * 1000,
+    5 * 60 * 1000,
+    15 * 60 * 1000,
+    60 * 60 * 1000,
+];
+
+fn verification_recheck_interval_ms(attempts: u32) -> i64 {
+    let index = (attempts.saturating_sub(1) as usize).min(VERIFICATION_RECHECK_LADDER_MS.len() - 1);
+    VERIFICATION_RECHECK_LADDER_MS[index]
+}
+
 impl std::fmt::Debug for Account {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Account")
@@ -112,6 +142,8 @@ impl std::fmt::Debug for Account {
             .field("rate_limit_reset_times", &self.rate_limit_reset_times)
             .field("cooling_down_until", &self.cooling_down_until)
             .field("verification_required", &self.verification_required)
+            .field("verification_recheck_at", &self.verification_recheck_at)
+            .field("verification_attempts", &self.verification_attempts)
             .field("account_ineligible", &self.account_ineligible)
             .field("captured_tier_id", &self.captured_tier_id)
             .finish()
@@ -135,6 +167,8 @@ impl Account {
             verification_required_at: None,
             verification_required_reason: None,
             verification_url: None,
+            verification_recheck_at: None,
+            verification_attempts: 0,
             account_ineligible: false,
             account_ineligible_at: None,
             account_ineligible_reason: None,
@@ -165,14 +199,27 @@ impl Account {
 
     /// Whether this account may be dispatched to right now.
     ///
-    /// Excludes disabled accounts, accounts under verification or ineligibility
-    /// holds, and accounts still inside a cooldown.
+    /// Excludes disabled accounts, accounts inside an unexpired verification or
+    /// ineligibility hold, and accounts still inside a cooldown. A verification
+    /// hold is not indefinite — see [`Self::verification_blocks_dispatch`].
     pub fn is_available(&self, now: i64) -> bool {
         self.enabled
-            && !self.verification_required
+            && !self.verification_blocks_dispatch(now)
             && !self.account_ineligible
             && self.cooling_down_until.is_none_or(|until| until <= now)
             && !self.is_rate_limited_for_any(now)
+    }
+
+    /// Whether the verification hold still blocks dispatch at `now`.
+    ///
+    /// Completing the challenge upstream is invisible to the gateway — nothing
+    /// pushes the news — so the hold expires on its own and lets a real request
+    /// learn the truth. That request either succeeds, which clears the hold, or
+    /// draws the 403 that re-arms it. An absent window (an account marked by an
+    /// older build) counts as due immediately, so pre-existing holds self-heal.
+    fn verification_blocks_dispatch(&self, now: i64) -> bool {
+        self.verification_required
+            && self.verification_recheck_at.is_some_and(|at| at > now)
     }
 
     /// Whether any quota pool is currently rate-limited.
@@ -235,10 +282,25 @@ impl Account {
     }
 
     pub fn mark_verification_required(&mut self, url: Option<String>, reason: impl Into<String>) {
+        let now = now_ms();
         self.verification_required = true;
-        self.verification_required_at = Some(now_ms());
+        self.verification_required_at = Some(now);
+        self.verification_attempts = self.verification_attempts.saturating_add(1);
+        self.verification_recheck_at =
+            Some(now + verification_recheck_interval_ms(self.verification_attempts));
         self.verification_url = url;
         self.verification_required_reason = Some(reason.into());
+    }
+
+    /// Clear the verification hold: the upstream just served this account, so
+    /// the demand, whatever it once was, is satisfied.
+    pub fn clear_verification(&mut self) {
+        self.verification_required = false;
+        self.verification_required_at = None;
+        self.verification_required_reason = None;
+        self.verification_url = None;
+        self.verification_recheck_at = None;
+        self.verification_attempts = 0;
     }
 
     pub fn mark_ineligible(&mut self, reason: impl Into<String>) {
@@ -249,10 +311,7 @@ impl Account {
 
     /// Clear operator-resolvable holds so an account can be retried.
     pub fn clear_holds(&mut self) {
-        self.verification_required = false;
-        self.verification_required_at = None;
-        self.verification_required_reason = None;
-        self.verification_url = None;
+        self.clear_verification();
         self.account_ineligible = false;
         self.account_ineligible_at = None;
         self.account_ineligible_reason = None;
@@ -395,6 +454,67 @@ mod tests {
             account.verification_url.as_deref(),
             Some("https://accounts.google.com/x")
         );
+    }
+
+    #[test]
+    fn a_verification_hold_opens_for_recheck_when_its_window_expires() {
+        // Completing the challenge is invisible to the gateway, so the hold has
+        // to expire on its own: the next request is what learns the truth.
+        let mut account = Account::new("t");
+        account.mark_verification_required(Some("https://accounts.google.com/x".into()), "asked");
+        let recheck_at = account.verification_recheck_at.expect("a recheck window");
+
+        assert!(!account.is_available(recheck_at - 1));
+        assert!(account.is_available(recheck_at), "due is available");
+        assert!(
+            account.verification_required,
+            "availability is not proof; the flag clears on success"
+        );
+    }
+
+    #[test]
+    fn a_verification_hold_without_a_window_is_due_immediately() {
+        // Accounts marked by an older build carry no recheck time; without this
+        // they would be held forever.
+        let mut account = Account::new("t");
+        account.verification_required = true;
+        assert!(account.is_available(now_ms()));
+    }
+
+    #[test]
+    fn verification_rechecks_escalate_and_plateau() {
+        let interval = |attempts: u32| verification_recheck_interval_ms(attempts);
+        assert_eq!(interval(1), 60 * 1000);
+        assert_eq!(interval(2), 5 * 60 * 1000);
+        assert_eq!(interval(3), 15 * 60 * 1000);
+        assert_eq!(interval(4), 60 * 60 * 1000);
+        assert_eq!(interval(99), 60 * 60 * 1000, "past the end, it stays put");
+    }
+
+    #[test]
+    fn a_reasserted_hold_arms_a_longer_window() {
+        let mut account = Account::new("t");
+        account.mark_verification_required(None, "asked");
+        let first = account.verification_recheck_at.expect("a window");
+
+        account.mark_verification_required(None, "asked again");
+        let second = account.verification_recheck_at.expect("a window");
+        assert!(second > first, "each assertion waits longer");
+        assert_eq!(account.verification_attempts, 2);
+    }
+
+    #[test]
+    fn clearing_verification_resets_the_ladder() {
+        let mut account = Account::new("t");
+        account.mark_verification_required(None, "asked");
+        account.mark_verification_required(None, "asked again");
+        assert_eq!(account.verification_attempts, 2);
+
+        account.clear_verification();
+        assert!(!account.verification_required);
+        assert_eq!(account.verification_attempts, 0);
+        assert!(account.verification_recheck_at.is_none());
+        assert!(account.verification_url.is_none());
     }
 
     #[test]

@@ -341,7 +341,7 @@ impl Engine {
                     match pool_wait(earliest_in, &self.config.routing) {
                         Some(wait) if *total_waited + wait <= budget => {
                             tracing::info!(
-                                seconds = wait.as_secs(),
+                                wait_ms = wait.as_millis() as u64,
                                 "every account is rate limited; waiting"
                             );
                             tokio::time::sleep(wait).await;
@@ -568,6 +568,11 @@ impl Engine {
             // A success clears any stale limit for this pool: the upstream just
             // served a request, so whatever we recorded is out of date.
             account.rate_limit_reset_times.remove(pool);
+            // The same proof clears a verification hold: the upstream served a
+            // request, so whatever challenge it once demanded is satisfied.
+            // Without this the hold would persist even though the account
+            // works — the state that trapped re-added accounts in `verify`.
+            account.clear_verification();
 
             // Write the resolved project back, so the next request skips
             // discovery. A project that only worked by falling back to the
