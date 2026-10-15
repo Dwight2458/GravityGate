@@ -38,10 +38,11 @@ use crate::upstream::sse::SseDecoder;
 use super::SharedState;
 use super::error::{self, ApiError};
 use super::execute::{self, Begun};
+use super::request::ApiJson;
 
 pub async fn completions(
     State(state): State<SharedState>,
-    Json(request): Json<ChatCompletionRequest>,
+    ApiJson(request): ApiJson<ChatCompletionRequest>,
 ) -> Result<Response, ApiError> {
     let mode = state.engine.config.routing.exhausted_error_mode;
     let started = std::time::Instant::now();

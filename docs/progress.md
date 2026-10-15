@@ -882,6 +882,37 @@ both `gemini-3.8-flash-high` and `gemini-3.8-flash-tiered`. Validation passed
 712 library tests and 15 CLI tests. The previous installed executable was saved
 under `target/gravitygate-before-rate-limit-fix.exe` before replacement.
 
+## ZCode requests crossed the framework's default body limit
+
+A ZCode turn returned HTTP 413 before dispatch. The matching model-IO log had
+322 messages, 69 tool definitions and 10 historical images. Reconstructing the
+compact UTF-8 request using the logged original image URL lengths yielded about
+2,098,816 bytes, just 1,664 above Axum's default 2,097,152-byte JSON limit. Live
+boundary checks confirmed that both generation routes accepted the old limit
+into schema validation and rejected one additional byte with a plain-text 413.
+
+Both routes now use shared JSON extraction with a configurable
+`server.max_request_body_bytes`, defaulting to 16 MiB. Limits count received
+bytes, including chunked bodies, and preserve an upper bound. Oversized bodies
+return `invalid_request_error` / `request_body_too_large` in the OpenAI JSON
+envelope. Extraction errors are audited with zero upstream attempts, and their
+logs record the route, configured limit, declared length and bytes observed.
+Unparsed model/account identifiers remain empty; the existing audit schema's
+stream field stays at its default because the request could not be parsed.
+
+Regression coverage includes the reconstructed ZCode payload size on both
+routes, exact custom limits and a one-byte overflow, chunked requests, UTF-8 byte
+counting, malformed JSON/schema/media-type statuses and the extraction audit path.
+The longer-term routing recovery proposal remains separate.
+
+Validation passed 719 library tests, 15 CLI tests and
+`cargo clippy --all-targets`. After reinstalling the release executable on PATH,
+both live routes accepted 2,098,816-byte and exactly 16-MiB bodies into schema
+validation, then returned JSON 413 for 16 MiB plus one byte. These deliberately
+invalid-schema requests made no upstream calls. The local port-18080 config now
+explicitly sets the 16-MiB limit; the old executable was saved under
+`target/gravitygate-before-body-limit-fix.exe`.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and

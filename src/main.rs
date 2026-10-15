@@ -1006,6 +1006,8 @@ const SAMPLE_CONFIG: &str = r#"# GravityGate configuration.
 [server]
 host = "127.0.0.1"
 port = 8080
+# Maximum chat/Responses JSON body, including inline images (16 MiB).
+max_request_body_bytes = 16777216
 # Accepted client credentials. Empty disables authentication, which is the
 # sensible default for a loopback-only gateway.
 # api_keys = ["sk-your-key"]
@@ -1288,5 +1290,9 @@ mod tests {
         );
         assert_eq!(parsed.reasoning.output_field, defaults.reasoning.output_field);
         assert_eq!(parsed.upstream.endpoints, defaults.upstream.endpoints);
+        assert_eq!(
+            parsed.server.max_request_body_bytes,
+            defaults.server.max_request_body_bytes
+        );
     }
 }

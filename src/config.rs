@@ -18,6 +18,8 @@ pub const ENV_CONFIG_FILE: &str = "GRAVITYGATE_CONFIG_FILE";
 /// Default listen port. Matches every reference implementation, which keeps
 /// client documentation copy-pasteable.
 pub const DEFAULT_PORT: u16 = 8080;
+/// Inbound JSON budget for generation routes, including inline image data.
+pub const DEFAULT_MAX_REQUEST_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
@@ -85,6 +87,8 @@ impl AuditConfig {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Maximum JSON request body for chat and Responses, measured in bytes.
+    pub max_request_body_bytes: usize,
     /// Accepted client credentials. Empty means no authentication, which is the
     /// sensible default for a loopback-only gateway.
     pub api_keys: Vec<String>,
@@ -95,6 +99,7 @@ impl Default for ServerConfig {
         Self {
             host: "127.0.0.1".into(),
             port: DEFAULT_PORT,
+            max_request_body_bytes: DEFAULT_MAX_REQUEST_BODY_BYTES,
             api_keys: Vec::new(),
         }
     }
@@ -405,6 +410,11 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.server.max_request_body_bytes == 0 {
+            return Err(ConfigError::Invalid(
+                "server.max_request_body_bytes must not be zero".into(),
+            ));
+        }
         if self.server.port == 0 {
             return Err(ConfigError::Invalid(
                 "server.port must not be zero".into(),
@@ -488,7 +498,17 @@ mod tests {
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.server.port, 9999);
         assert_eq!(config.server.host, "127.0.0.1");
+        assert_eq!(config.server.max_request_body_bytes, 16 * 1024 * 1024);
         assert_eq!(config.accounts.strategy, Strategy::Hybrid);
+    }
+
+    #[test]
+    fn request_body_limit_is_configurable_and_must_be_positive() {
+        let config: Config = toml::from_str("[server]\nmax_request_body_bytes = 33554432").unwrap();
+        assert_eq!(config.server.max_request_body_bytes, 32 * 1024 * 1024);
+        assert!(config.validate().is_ok());
+        let config: Config = toml::from_str("[server]\nmax_request_body_bytes = 0").unwrap();
+        assert!(config.validate().is_err());
     }
 
     #[test]

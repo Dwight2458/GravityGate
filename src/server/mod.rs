@@ -19,6 +19,7 @@ pub mod chat;
 pub mod error;
 pub mod execute;
 pub mod models;
+mod request;
 pub mod responses;
 
 use std::sync::Arc;

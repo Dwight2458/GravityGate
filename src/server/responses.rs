@@ -32,10 +32,11 @@ use crate::upstream::sse::SseDecoder;
 use super::SharedState;
 use super::error::{self, ApiError};
 use super::execute;
+use super::request::ApiJson;
 
 pub async fn create(
     State(state): State<SharedState>,
-    Json(request): Json<ResponsesRequest>,
+    ApiJson(request): ApiJson<ResponsesRequest>,
 ) -> Result<Response, ApiError> {
     let mode = execute::exhausted_mode(&state);
     let started = std::time::Instant::now();

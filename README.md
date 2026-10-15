@@ -93,6 +93,22 @@ errors use a conservative short cooldown instead of asserting quota exhaustion.
 Specific upstream reasons and reset hints take precedence; confirmed quota
 exhaustion starts at 60 seconds when no reset hint is supplied.
 
+Chat and Responses accept JSON request bodies up to 16 MiB by default, including
+inline image data. Override the byte limit in `config.toml` when needed:
+
+```toml
+[server]
+max_request_body_bytes = 16777216
+```
+
+This HTTP byte budget is separate from the model's token context window. An
+oversized request returns HTTP 413 with an OpenAI-shaped JSON error and code
+`request_body_too_large`, before account selection or any upstream request.
+Ingress rejections are recorded in the audit log without model/account identifiers;
+warning logs include the configured limit, declared length when present, and
+observed bytes read. Other JSON errors retain their 400/415/422 status in the
+same error envelope. Restart the service after changing the limit.
+
 ## Design decisions
 
 Three choices shape everything else.
