@@ -82,6 +82,17 @@ client would have received, and the raw response body. Because it runs the real
 path, a healthy probe is evidence about the gateway rather than about the
 transport. It is the tool to reach for when something is wrong.
 
+For Gemini 3.8 Flash, use `gemini-3.8-flash-high` for the high tier.
+`gemini-3.8-flash-tiered` is a separate upstream wire name; appending `-high`
+does not produce a valid model. An unknown model returning 404 stops the request
+without endpoint fallback or account cooldown.
+
+Rate-limit records are scoped to model groups, so Flash variants share a limit
+while Pro and Claude remain independently usable. Generic `RESOURCE_EXHAUSTED`
+errors use a conservative short cooldown instead of asserting quota exhaustion.
+Specific upstream reasons and reset hints take precedence; confirmed quota
+exhaustion starts at 60 seconds when no reset hint is supplied.
+
 ## Design decisions
 
 Three choices shape everything else.

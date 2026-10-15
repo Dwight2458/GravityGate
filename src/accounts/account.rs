@@ -57,8 +57,8 @@ pub struct Account {
     pub enabled: bool,
 
     /// Per-quota-key rate-limit expiry, in epoch milliseconds. Keys are quota
-    /// pools (`claude`, `gemini`) rather than models, because that is the
-    /// granularity the upstream actually enforces.
+    /// model groups (`gemini:gemini-3.8-flash`). Older family-wide keys such as
+    /// `gemini` remain supported until they expire.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub rate_limit_reset_times: BTreeMap<String, i64>,
 
@@ -203,11 +203,32 @@ impl Account {
     /// ineligibility hold, and accounts still inside a cooldown. A verification
     /// hold is not indefinite — see [`Self::verification_blocks_dispatch`].
     pub fn is_available(&self, now: i64) -> bool {
+        self.is_eligible(now) && !self.is_rate_limited_for_any(now)
+    }
+
+    /// Account-wide holds, independent of which model is being requested.
+    pub fn is_eligible(&self, now: i64) -> bool {
         self.enabled
             && !self.verification_blocks_dispatch(now)
             && !self.account_ineligible
             && self.cooling_down_until.is_none_or(|until| until <= now)
-            && !self.is_rate_limited_for_any(now)
+    }
+
+    pub fn is_available_for(&self, pool: &str, now: i64) -> bool {
+        self.is_eligible(now) && self.reset_at_for(pool, now).is_none()
+    }
+
+    /// All applicable limits must expire, so take the latest of the model key
+    /// and an older family-wide key. Unrelated models do not affect this wait.
+    pub fn reset_at_for(&self, pool: &str, now: i64) -> Option<i64> {
+        let legacy = pool.split_once(':').map(|(family, _)| family);
+        self.rate_limit_reset_times
+            .iter()
+            .filter(|(key, reset)| {
+                (key.as_str() == pool || Some(key.as_str()) == legacy) && **reset > now
+            })
+            .map(|(_, reset)| *reset)
+            .max()
     }
 
     /// Whether the verification hold still blocks dispatch at `now`.

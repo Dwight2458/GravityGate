@@ -172,25 +172,27 @@ impl Engine {
         }
 
         let family = prepared.resolved.family;
-        // Rate limits are enforced per quota pool, which is coarser than the
-        // model and finer than the family.
-        let pool = family.quota_pool();
+        let pool = prepared.resolved.quota_key();
 
         let mut state = AttemptState::new(endpoints.len());
         let mut tried: Vec<String> = Vec::new();
         let mut current: Option<(usize, String)> = None;
         let mut total_waited = Duration::ZERO;
         let mut last_failure: Option<UpstreamFailure> = None;
+        let mut attempts = 0;
 
         loop {
             // Acquire an account when we do not already hold one. A same-account
             // retry keeps `current` and skips this entirely.
             if current.is_none() {
                 match self
-                    .acquire_account(&tried, family.quota_pool(), &mut total_waited, only.as_deref())
+                    .acquire_account(&tried, &pool, &mut total_waited, only.as_deref())
                     .await
                 {
-                    Ok(Some(account)) => current = Some(account),
+                    Ok(Some(account)) => {
+                        state.begin_next_account();
+                        current = Some(account);
+                    }
                     Ok(None) => {
                         // Every account has been tried for this request.
                         return Err(DispatchError::Retry(RetryError::AccountsExhausted {
@@ -222,15 +224,16 @@ impl Engine {
                 "dispatching"
             );
 
+            attempts += 1;
             match self.attempt_once(prepared, &account, &endpoint).await {
                 Ok(success) => {
-                    self.record_success(&credential_id, family.quota_pool(), &success);
+                    self.record_success(&credential_id, &pool, &success);
                     return Ok(UpstreamCall {
                         response: success.response,
                         account_index: index,
                         credential_id,
                         endpoint,
-                        attempts: state.accounts_tried + state.same_account_retries,
+                        attempts,
                         wire_model: prepared.resolved.wire_model.clone(),
                         family,
                         session_key: prepared.session_key.clone(),
@@ -244,7 +247,18 @@ impl Engine {
 
                 Err(AttemptError::Upstream(failure)) => {
                     let failure = *failure;
-                    self.apply_failure(&credential_id, pool, &failure);
+                    if prepared.resolved.spec.is_none()
+                        && let UpstreamFailure::Refused {
+                            status: 404,
+                            message,
+                        } = &failure
+                    {
+                        return Err(DispatchError::Retry(RetryError::ModelNotFound {
+                            model: prepared.resolved.wire_model.clone(),
+                            message: message.clone(),
+                        }));
+                    }
+                    self.apply_failure(&credential_id, &pool, &failure);
                     last_failure = Some(failure.clone());
 
                     let step = decide(&failure, &state, &self.config.routing, CAPACITY_JITTER);
@@ -268,7 +282,6 @@ impl Engine {
                                 tokio::time::sleep(delay).await;
                             }
                             tried.push(credential_id);
-                            state.begin_next_account();
                             current = None;
                         }
                         Step::Fail(error) => {
@@ -317,7 +330,7 @@ impl Engine {
                     Some(only) => account.credential_id() == only,
                     None => true,
                 })
-                .map(|(index, account)| candidate(index, account, now))
+                .map(|(index, account)| candidate(index, account, pool, now))
                 .collect();
 
             if remaining.is_empty() {
@@ -449,6 +462,8 @@ impl Engine {
                 let status = response.status;
                 let headers = response.headers.clone();
                 let body = drain_to_string(response.body).await;
+                tracing::debug!(status = %status, endpoint, model = %prepared.resolved.wire_model,
+                    body = %body.chars().take(1000).collect::<String>(), "upstream rejected request");
                 Err(AttemptError::Upstream(Box::new(
                     crate::accounts::ratelimit::classify(status, &headers, &body),
                 )))
@@ -470,17 +485,21 @@ impl Engine {
 
         match failure {
             UpstreamFailure::RateLimited { reason, reset_in } => {
-                self.router.record_rate_limit(credential_id, now);
-
-                let consecutive = self.router.consecutive_failures(credential_id);
-                let delay = backoff_for(*reason, consecutive, *reset_in, CAPACITY_JITTER);
-                let reset_at = now + delay.as_millis() as i64;
-
-                // A capacity error is the model's problem, so recording it
-                // against the account would bench a perfectly good account.
-                if *reason == RateLimitReason::ModelCapacityExhausted {
+                // Neither capacity nor an upstream server fault implicates the
+                // account. Do not reduce health or persist quota for either.
+                if matches!(
+                    reason,
+                    RateLimitReason::ModelCapacityExhausted | RateLimitReason::ServerError
+                ) {
                     return;
                 }
+                let consecutive = if *reason == RateLimitReason::QuotaExhausted {
+                    self.router.record_quota_failure(credential_id, pool)
+                } else {
+                    0
+                };
+                let delay = backoff_for(*reason, consecutive, *reset_in, CAPACITY_JITTER);
+                let reset_at = now + delay.as_millis() as i64;
 
                 let pool = pool.to_string();
                 self.persist(credential_id, |account| {
@@ -556,6 +575,7 @@ impl Engine {
     fn record_success(&self, credential_id: &str, pool: &str, success: &AttemptSuccess) {
         let now = now_ms();
         self.router.record_success(credential_id, now);
+        self.router.clear_quota_failures(credential_id, pool);
         self.router.set_current(pool, credential_id);
 
         let project_id = success.project_id.clone();
@@ -843,6 +863,244 @@ mod tests {
                 reason: "x".into()
             }))
             .contains("banned")
+        );
+    }
+
+    struct TestPool {
+        engine: Engine,
+        path: std::path::PathBuf,
+    }
+
+    impl TestPool {
+        fn new(endpoints: Vec<String>, count: usize) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("gg-dispatch-{}.json", uuid::Uuid::new_v4()));
+            let store = crate::accounts::store::AccountStore::load(&path).unwrap();
+            store
+                .mutate(|storage| {
+                    storage.accounts = (0..count)
+                        .map(|i| Account::new(format!("mock-token-{i}")))
+                        .collect();
+                    true
+                })
+                .unwrap();
+            let mut config = crate::config::Config::default();
+            config.upstream.endpoints = endpoints;
+            config.routing.max_wait_before_error_secs = 0;
+            config.routing.max_capacity_retries = 0;
+            let engine = Engine::new(config, store).unwrap();
+            for account in &engine.accounts.snapshot().accounts {
+                engine.credentials.seed_for_test(account);
+            }
+            Self { engine, path }
+        }
+
+        fn prepared(&self, model: &str) -> Prepared {
+            self.engine.prepare(&request(json!({"model": model,
+                "messages": [{"role": "user", "content": "Reply with exactly: ok"}], "max_tokens": 1024}))).unwrap()
+        }
+    }
+
+    impl Drop for TestPool {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    struct TestUpstream {
+        endpoint: String,
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl TestUpstream {
+        async fn new(rejected_model: &str, status: u16, body: serde_json::Value) -> Self {
+            use axum::{Json, Router, routing::post};
+            use std::sync::{
+                Arc,
+                atomic::{AtomicUsize, Ordering},
+            };
+            let calls = Arc::new(AtomicUsize::new(0));
+            let seen = calls.clone();
+            let rejected = rejected_model.to_string();
+            let app = Router::new()
+                .route(constants::API_LOAD_CODE_ASSIST, post(|| async {
+                    Json(json!({"cloudaicompanionProject": "mock-project", "currentTier": {"id": "free-tier"}}))
+                }))
+                .route(constants::API_STREAM_GENERATE, post(move |Json(payload): Json<serde_json::Value>| {
+                    let calls = seen.clone();
+                    let rejected = rejected.clone();
+                    let body = body.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        if payload["model"].as_str() == Some(&rejected) {
+                            (axum::http::StatusCode::from_u16(status).unwrap(), Json(body))
+                        } else {
+                            (axum::http::StatusCode::OK, Json(json!({"ok": true})))
+                        }
+                    }
+                }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let endpoint = format!("http://{}", listener.local_addr().unwrap());
+            let task = tokio::spawn(async move {
+                axum::serve(listener, app).await.unwrap();
+            });
+            Self {
+                endpoint,
+                calls,
+                task,
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for TestUpstream {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn unknown_model_404_never_reaches_429_fallback_or_benches_the_account() {
+        let model = "gemini-3.8-flash-tiered-high";
+        let primary = TestUpstream::new(
+            model,
+            404,
+            json!({"error": {"status": "NOT_FOUND", "message": "Requested entity was not found."}}),
+        )
+        .await;
+        let fallback = TestUpstream::new(model, 429, json!({"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}})).await;
+        let pool = TestPool::new(vec![primary.endpoint.clone(), fallback.endpoint.clone()], 1);
+        let error = pool
+            .engine
+            .dispatch(&pool.prepared(model))
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            DispatchError::Retry(RetryError::ModelNotFound { .. })
+        ));
+        assert_eq!(primary.call_count(), 1);
+        assert_eq!(fallback.call_count(), 0);
+        assert!(
+            pool.engine.accounts.snapshot().accounts[0]
+                .rate_limit_reset_times
+                .is_empty()
+        );
+        let call = pool
+            .engine
+            .dispatch(&pool.prepared("gemini-3.8-flash-tiered"))
+            .await
+            .unwrap();
+        assert!(call.response.status.is_success());
+        assert_eq!(call.attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn two_quota_failures_report_two_accounts_and_only_limit_flash_for_60_seconds() {
+        let model = "gemini-3.8-flash-high";
+        let upstream = TestUpstream::new(
+            model,
+            429,
+            json!({"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+                {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "QUOTA_EXHAUSTED"}
+            ]}}),
+        )
+        .await;
+        let pool = TestPool::new(vec![upstream.endpoint.clone()], 2);
+        let started = now_ms();
+        let error = pool
+            .engine
+            .dispatch(&pool.prepared(model))
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            DispatchError::Retry(RetryError::AccountsExhausted { tried: 2, .. })
+        ));
+        assert_eq!(upstream.call_count(), 2);
+        let now = now_ms();
+        for account in pool.engine.accounts.snapshot().accounts {
+            let reset = account.rate_limit_reset_times["gemini:gemini-3.8-flash"];
+            assert!((started + 60_000..=now + 60_000).contains(&reset));
+            assert!(!account.is_available_for("gemini:gemini-3.8-flash", now));
+            assert!(account.is_available_for("gemini:gemini-3.1-pro", now));
+            assert!(account.is_available_for("claude:claude-sonnet-4-6", now));
+        }
+        let error = pool
+            .engine
+            .dispatch(&pool.prepared("gemini-3.8-flash-tiered"))
+            .await
+            .err()
+            .unwrap();
+        assert!(matches!(
+            error,
+            DispatchError::Retry(RetryError::PoolExhausted { .. })
+        ));
+        assert_eq!(
+            upstream.call_count(),
+            2,
+            "a genuine shared Flash limit is honoured"
+        );
+        assert!(
+            pool.engine
+                .dispatch(&pool.prepared("gemini-3.1-pro-high"))
+                .await
+                .unwrap()
+                .response
+                .status
+                .is_success()
+        );
+    }
+
+    #[tokio::test]
+    async fn known_model_keeps_endpoint_fallback_and_counts_both_upstream_attempts() {
+        let model = "gemini-3.8-flash-high";
+        let primary = TestUpstream::new(
+            model,
+            404,
+            json!({"error": {"message": "project not found"}}),
+        )
+        .await;
+        let fallback = TestUpstream::new(
+            "other",
+            429,
+            json!({"error": {"status": "RESOURCE_EXHAUSTED"}}),
+        )
+        .await;
+        let pool = TestPool::new(vec![primary.endpoint.clone(), fallback.endpoint.clone()], 1);
+        let call = pool.engine.dispatch(&pool.prepared(model)).await.unwrap();
+        assert_eq!(call.attempts, 2);
+        assert_eq!(primary.call_count(), 1);
+        assert_eq!(fallback.call_count(), 1);
+    }
+
+    #[test]
+    fn capacity_errors_never_reduce_account_health_or_persist_limits() {
+        let pool = TestPool::new(vec![], 1);
+        let account = pool.engine.accounts.snapshot().accounts[0].clone();
+        let id = account.credential_id();
+        let health = pool.engine.router.health(&id, now_ms());
+        for _ in 0..6 {
+            pool.engine.apply_failure(
+                &id,
+                "gemini:gemini-3.8-flash",
+                &UpstreamFailure::RateLimited {
+                    reason: RateLimitReason::ModelCapacityExhausted,
+                    reset_in: None,
+                },
+            );
+        }
+        assert_eq!(pool.engine.router.health(&id, now_ms()), health);
+        assert!(
+            pool.engine.accounts.snapshot().accounts[0]
+                .rate_limit_reset_times
+                .is_empty()
         );
     }
 }

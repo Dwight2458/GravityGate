@@ -442,6 +442,21 @@ pub struct ResolvedModel {
 }
 
 impl ResolvedModel {
+    /// Known tier variants share quota. Unknown models keep their exact name.
+    /// Prefixing by family also lets readers honour legacy family-wide keys.
+    pub fn quota_key(&self) -> String {
+        let base = base_for_wire(&self.wire_model)
+            .or_else(|| {
+                self.wire_model
+                    .strip_suffix("-tiered")
+                    .and_then(lookup)
+                    .filter(|spec| spec.family == ModelFamily::Gemini && spec.is_tiered())
+                    .map(|spec| spec.id)
+            })
+            .unwrap_or(&self.wire_model);
+        format!("{}:{base}", self.family.quota_pool())
+    }
+
     pub fn context_limit(&self) -> Option<u32> {
         self.spec.map(|spec| spec.context_limit)
     }

@@ -41,6 +41,8 @@ pub enum Step {
 /// Why the loop gave up.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RetryError {
+    /// An unknown model was not found; endpoint fallback can hide this as 429.
+    ModelNotFound { model: String, message: String },
     /// The request was rejected as malformed. It will be malformed everywhere.
     BadRequest { message: String },
 
@@ -57,6 +59,9 @@ pub enum RetryError {
 impl std::fmt::Display for RetryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ModelNotFound { model, message } => {
+                write!(f, "model {model} was not found upstream (404): {message}")
+            }
             Self::BadRequest { message } => write!(f, "upstream rejected the request: {message}"),
             Self::AuthInvalid { message } => write!(f, "credential rejected: {message}"),
             Self::AccountsExhausted { tried, last } => {
@@ -94,7 +99,7 @@ impl AttemptState {
         Self {
             endpoint_count: endpoint_count.max(1),
             endpoint_index: 0,
-            accounts_tried: 1,
+            accounts_tried: 0,
             same_account_retries: 0,
         }
     }
@@ -264,7 +269,9 @@ mod tests {
     fn state() -> AttemptState {
         // One endpoint by default, so endpoint fallback does not mask the
         // account-level decision being tested.
-        AttemptState::new(1)
+        let mut state = AttemptState::new(1);
+        state.begin_next_account();
+        state
     }
 
     fn rate_limited(reason: RateLimitReason) -> UpstreamFailure {
@@ -511,6 +518,7 @@ mod tests {
     #[test]
     fn beginning_a_new_account_resets_the_per_account_counter() {
         let mut state = AttemptState::new(2);
+        state.begin_next_account();
         state.note_same_account_retry();
         state.advance_endpoint();
         state.begin_next_account();

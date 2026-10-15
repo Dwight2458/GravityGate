@@ -135,6 +135,13 @@ pub fn from_dispatch(error: DispatchError, mode: ExhaustedErrorMode) -> ApiError
 /// Map a retry-loop failure onto the client-facing error.
 pub fn from_retry(error: RetryError, mode: ExhaustedErrorMode) -> ApiError {
     match error {
+        RetryError::ModelNotFound { model, message } => ApiError {
+            status: StatusCode::NOT_FOUND,
+            kind: "invalid_request_error",
+            message: format!("model {model} was not found upstream: {message}"),
+            code: Some("model_not_found".into()),
+            retry_after: None,
+        },
         RetryError::BadRequest { message } => ApiError::invalid_request(message),
 
         RetryError::AuthInvalid { message } => ApiError::new(
@@ -298,6 +305,21 @@ mod tests {
         );
         assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
         assert!(error.message.contains('3'));
+    }
+
+    #[test]
+    fn an_unknown_model_returns_404_without_a_retry_hint() {
+        let error = from_retry(
+            RetryError::ModelNotFound {
+                model: "gemini-3.8-flash-tiered-high".into(),
+                message: "Requested entity was not found.".into(),
+            },
+            mode(),
+        );
+        assert_eq!(error.status, StatusCode::NOT_FOUND);
+        assert_eq!(error.code.as_deref(), Some("model_not_found"));
+        assert!(error.message.contains("gemini-3.8-flash-tiered-high"));
+        assert!(error.retry_after.is_none());
     }
 
     #[test]

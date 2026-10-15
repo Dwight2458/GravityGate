@@ -846,6 +846,42 @@ was ours.
   the free-tier quota got exhausted in the first place. Refill stays at six per
   minute; both are config knobs.
 
+## A missing model became an account-wide quota exhaustion
+
+The reported sequence was a successful `gemini-3.8-flash-tiered` probe, a failed
+`gemini-3.8-flash-tiered-high` probe, then a local "every account is rate limited"
+message with 291 seconds remaining. Direct requests established the distinction:
+the nonexistent `tiered-high` name returned 404 at the daily endpoint and generic
+429 `RESOURCE_EXHAUSTED` at the production fallback, while `tiered` and the actual
+`gemini-3.8-flash-high` both returned 200. The account's reported Flash quota was
+still about 98.68%.
+
+The classifier now searches all structured detail reasons before status or
+message fallbacks. Generic resource exhaustion remains unknown; `QuotaFailure`
+details distinguish per-minute limits from quota exhaustion. Unknown-model 404s
+return `model_not_found` immediately, preserving the error instead of allowing
+endpoint fallback to replace it with a quota judgment. Debug logs include the
+endpoint, wire model, HTTP status and a bounded upstream error body.
+
+Dispatch now keys limits by model group, sharing known Flash tiers and the
+`tiered` wire name without blocking Pro or Claude. Old family-wide records are
+honoured until expiry. Quota failure counts are per account and model group and
+no longer reduce account-wide health; capacity errors do not alter it either.
+The first confirmed exhaustion uses the 60-second rung, and upstream reset hints
+still win. Account counts advance on acquisition rather than before an account
+exists, and upstream attempt counts include endpoint fallback.
+
+Local HTTP regression tests cover the original 404-to-429 trap, a successful
+request after that failure, genuine shared Flash cooldowns, independent Pro
+routing, two-account exhaustion, and fallback for known models. The complete
+test suite and `cargo clippy --all-targets` pass.
+
+After reinstalling the release binary on PATH, the same pinned account returned
+404 for `tiered-high` with an unchanged account-store hash, then 200 / `ok` for
+both `gemini-3.8-flash-high` and `gemini-3.8-flash-tiered`. Validation passed
+712 library tests and 15 CLI tests. The previous installed executable was saved
+under `target/gravitygate-before-rate-limit-fix.exe` before replacement.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and

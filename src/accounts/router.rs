@@ -152,6 +152,8 @@ struct Inner {
     /// Sticky cursor per routing family, held as a credential id so pool edits
     /// cannot shift it onto a different account.
     cursors: HashMap<String, String>,
+    /// Quota exhaustion belongs to a model group, not account-wide health.
+    quota_failures: HashMap<(String, String), u32>,
 }
 
 /// Selects accounts and tracks their runtime health.
@@ -499,15 +501,39 @@ impl AccountRouter {
     }
 
     pub fn record_rate_limit(&self, credential_id: &str, now_ms: i64) {
-        self.adjust_health(credential_id, now_ms, |score, _| {
-            score + self.config.health_rate_limit_penalty
-        }, false);
+        self.adjust_health(
+            credential_id,
+            now_ms,
+            |score, _| score + self.config.health_rate_limit_penalty,
+            false,
+        );
+    }
+
+    pub fn record_quota_failure(&self, credential_id: &str, pool: &str) -> u32 {
+        let mut inner = self.inner.lock().expect("router poisoned");
+        let count = inner
+            .quota_failures
+            .entry((credential_id.to_string(), pool.to_string()))
+            .or_default();
+        *count = count.saturating_add(1);
+        *count
+    }
+
+    pub fn clear_quota_failures(&self, credential_id: &str, pool: &str) {
+        self.inner
+            .lock()
+            .expect("router poisoned")
+            .quota_failures
+            .remove(&(credential_id.to_string(), pool.to_string()));
     }
 
     pub fn record_failure(&self, credential_id: &str, now_ms: i64) {
-        self.adjust_health(credential_id, now_ms, |score, _| {
-            score + self.config.health_failure_penalty
-        }, false);
+        self.adjust_health(
+            credential_id,
+            now_ms,
+            |score, _| score + self.config.health_failure_penalty,
+            false,
+        );
     }
 
     fn adjust_health(
@@ -560,6 +586,7 @@ impl AccountRouter {
         inner.buckets.retain(|key, _| live.contains(key));
         inner.health.retain(|key, _| live.contains(key));
         inner.cursors.retain(|_, value| live.contains(value));
+        inner.quota_failures.retain(|(id, _), _| live.contains(id));
     }
 }
 
@@ -569,14 +596,21 @@ impl AccountRouter {
 /// caller filters them out before selecting, because the router has no notion of
 /// a request in flight and should not acquire one: the alternative is threading
 /// per-request state through every strategy.
-pub fn candidate(index: usize, account: &crate::accounts::account::Account, now_ms: i64) -> Candidate {
+pub fn candidate(
+    index: usize,
+    account: &crate::accounts::account::Account,
+    pool: &str,
+    now_ms: i64,
+) -> Candidate {
     Candidate {
         index,
         credential_id: account.credential_id(),
         last_used: account.last_used,
-        is_available: account.is_available(now_ms),
+        is_available: account.is_available_for(pool, now_ms),
         next_reset_in: account
-            .next_reset_at(now_ms)
+            .is_eligible(now_ms)
+            .then(|| account.reset_at_for(pool, now_ms))
+            .flatten()
             .map(|reset| std::time::Duration::from_millis((reset - now_ms).max(0) as u64)),
     }
 }
@@ -1146,19 +1180,59 @@ mod tests {
         use crate::accounts::account::{Account, CooldownReason};
 
         let mut account = Account::new("token");
-        let built = candidate(3, &account, NOW);
+        let built = candidate(3, &account, "gemini", NOW);
         assert_eq!(built.index, 3);
         assert!(built.is_available);
         assert!(built.next_reset_in.is_none());
 
         account.mark_rate_limited("gemini", NOW + 60_000);
-        let built = candidate(0, &account, NOW);
+        let built = candidate(0, &account, "gemini", NOW);
         assert!(!built.is_available);
         assert_eq!(built.next_reset_in, Some(Duration::from_secs(60)));
 
         account.clear_holds();
         account.mark_cooling_down(NOW + 30_000, CooldownReason::NetworkError);
-        let built = candidate(0, &account, NOW);
+        let built = candidate(0, &account, "gemini", NOW);
         assert!(!built.is_available);
+    }
+
+    #[test]
+    fn limits_only_block_the_requested_model_group() {
+        use crate::accounts::account::Account;
+        let mut account = Account::new("token");
+        account.mark_rate_limited("gemini:gemini-3.8-flash", NOW + 60_000);
+        assert!(!candidate(0, &account, "gemini:gemini-3.8-flash", NOW).is_available);
+        for pool in ["gemini:gemini-3.1-pro", "claude:claude-sonnet-4-6"] {
+            let built = candidate(0, &account, pool, NOW);
+            assert!(built.is_available);
+            assert_eq!(built.next_reset_in, None);
+        }
+        account.mark_rate_limited("gemini", NOW + 120_000);
+        assert_eq!(
+            candidate(0, &account, "gemini:gemini-3.8-flash", NOW).next_reset_in,
+            Some(Duration::from_secs(120))
+        );
+        assert!(candidate(0, &account, "claude:claude-sonnet-4-6", NOW).is_available);
+        account.enabled = false;
+        assert!(
+            candidate(0, &account, "gemini:gemini-3.8-flash", NOW)
+                .next_reset_in
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn quota_failure_counts_are_per_account_and_model_without_health_penalties() {
+        let router = AccountRouter::new(Strategy::Hybrid, ScoringConfig::default());
+        for count in 1..=4 {
+            assert_eq!(router.record_quota_failure("a", "flash"), count);
+        }
+        assert_eq!(router.health("a", NOW), DEFAULT_HEALTH_INITIAL);
+        assert_eq!(router.record_quota_failure("a", "pro"), 1);
+        assert_eq!(router.record_quota_failure("b", "flash"), 1);
+        router.clear_quota_failures("a", "flash");
+        assert_eq!(router.record_quota_failure("a", "flash"), 1);
+        router.retain(&["b".to_string()]);
+        assert_eq!(router.record_quota_failure("a", "pro"), 1);
     }
 }

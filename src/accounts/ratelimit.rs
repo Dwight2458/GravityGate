@@ -268,9 +268,8 @@ fn classify_forbidden(body: &str) -> UpstreamFailure {
 
 /// Decide which of the four rate-limit shapes this is.
 ///
-/// Checked in a fixed order because the phrases overlap: "resource exhausted" in
-/// a message that also says "quota" is a capacity problem, not a quota problem,
-/// and the order below encodes that precedence.
+/// A canonical status such as RESOURCE_EXHAUSTED is not a specific reason.
+/// Prefer structured details, then explicit status reasons, then message text.
 pub fn classify_rate_limit_reason(status: StatusCode, body: &str) -> RateLimitReason {
     match status.as_u16() {
         529 | 503 => return RateLimitReason::ModelCapacityExhausted,
@@ -283,13 +282,11 @@ pub fn classify_rate_limit_reason(status: StatusCode, body: &str) -> RateLimitRe
         return reason;
     }
 
-    let lowered = body.to_ascii_lowercase();
+    let lowered = first_message(body)
+        .unwrap_or_else(|| body.to_string())
+        .to_ascii_lowercase();
 
-    if lowered.contains("capacity")
-        || lowered.contains("overloaded")
-        || lowered.contains("resource exhausted")
-        || lowered.contains("resource_exhausted")
-    {
+    if lowered.contains("capacity") || lowered.contains("overloaded") {
         return RateLimitReason::ModelCapacityExhausted;
     }
     if lowered.contains("per minute")
@@ -299,7 +296,10 @@ pub fn classify_rate_limit_reason(status: StatusCode, body: &str) -> RateLimitRe
     {
         return RateLimitReason::RateLimitExceeded;
     }
-    if lowered.contains("exhausted") || lowered.contains("quota") {
+    if lowered.contains("quota")
+        && (lowered.contains("exceeded") || lowered.contains("exhausted"))
+        && !lowered.contains("e.g. check quota")
+    {
         return RateLimitReason::QuotaExhausted;
     }
 
@@ -310,16 +310,54 @@ pub fn classify_rate_limit_reason(status: StatusCode, body: &str) -> RateLimitRe
 /// one, rather than inferring it from prose.
 fn explicit_reason(body: &str) -> Option<RateLimitReason> {
     let value: Value = serde_json::from_str(body).ok()?;
-    let reason = value
+    let details = value.pointer("/error/details").and_then(Value::as_array);
+    if let Some(reason) = details.into_iter().flatten().find_map(|detail| {
+        detail
+            .get("reason")
+            .and_then(Value::as_str)
+            .and_then(parse_reason)
+    }) {
+        return Some(reason);
+    }
+    if let Some(reason) = value
         .pointer("/error/status")
-        .or_else(|| value.pointer("/error/details/0/reason"))
-        .and_then(Value::as_str)?;
+        .and_then(Value::as_str)
+        .and_then(parse_reason)
+    {
+        return Some(reason);
+    }
+    // QuotaFailure identifies actual quota violations. Per-minute violations
+    // need the short rate-limit backoff rather than the long exhaustion ladder.
+    for detail in details.into_iter().flatten() {
+        if detail
+            .get("@type")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.ends_with("QuotaFailure"))
+            && let Some(violations) = detail.get("violations").and_then(Value::as_array)
+            && !violations.is_empty()
+        {
+            return Some(
+                if violations.iter().all(|v| {
+                    let text = v.to_string().to_ascii_lowercase();
+                    text.contains("perminute")
+                        || text.contains("per minute")
+                        || text.contains("per_minute")
+                }) {
+                    RateLimitReason::RateLimitExceeded
+                } else {
+                    RateLimitReason::QuotaExhausted
+                },
+            );
+        }
+    }
+    None
+}
 
+fn parse_reason(reason: &str) -> Option<RateLimitReason> {
     match reason.to_ascii_uppercase().as_str() {
         "QUOTA_EXHAUSTED" => Some(RateLimitReason::QuotaExhausted),
         "RATE_LIMIT_EXCEEDED" => Some(RateLimitReason::RateLimitExceeded),
         "MODEL_CAPACITY_EXHAUSTED" => Some(RateLimitReason::ModelCapacityExhausted),
-        "RESOURCE_EXHAUSTED" => Some(RateLimitReason::QuotaExhausted),
         "SERVER_ERROR" | "INTERNAL" => Some(RateLimitReason::ServerError),
         _ => None,
     }
@@ -328,7 +366,8 @@ fn explicit_reason(body: &str) -> Option<RateLimitReason> {
 /// Compute how long to wait before retrying.
 ///
 /// An upstream-supplied reset always wins: it reflects server state that our
-/// ladder is only guessing at. `consecutive_failures` escalates the quota ladder.
+/// ladder is only guessing at. `consecutive_failures` includes this failure;
+/// the first failure selects the first rung.
 pub fn backoff_for(
     reason: RateLimitReason,
     consecutive_failures: u32,
@@ -341,7 +380,8 @@ pub fn backoff_for(
 
     let base = match reason {
         RateLimitReason::QuotaExhausted => {
-            let index = (consecutive_failures as usize).min(QUOTA_EXHAUSTED_BACKOFFS.len() - 1);
+            let index = (consecutive_failures.saturating_sub(1) as usize)
+                .min(QUOTA_EXHAUSTED_BACKOFFS.len() - 1);
             QUOTA_EXHAUSTED_BACKOFFS[index]
         }
         RateLimitReason::RateLimitExceeded => RATE_LIMIT_EXCEEDED_BACKOFF,
@@ -654,13 +694,11 @@ mod tests {
     }
 
     #[test]
-    fn capacity_outranks_quota_when_both_phrases_appear() {
-        // "resource exhausted" plus "quota" is a capacity problem; the ordering
-        // of the checks encodes that.
+    fn resource_exhaustion_with_specific_quota_wording_is_quota() {
         let body = r#"{"error":{"message":"resource exhausted: quota for this model"}}"#;
         assert_eq!(
             classify_rate_limit_reason(StatusCode::TOO_MANY_REQUESTS, body),
-            RateLimitReason::ModelCapacityExhausted
+            RateLimitReason::QuotaExhausted
         );
     }
 
@@ -706,6 +744,73 @@ mod tests {
             classify_rate_limit_reason(StatusCode::TOO_MANY_REQUESTS, "something new"),
             RateLimitReason::Unknown
         );
+    }
+
+    #[test]
+    fn generic_resource_exhaustion_is_not_proof_of_quota_or_capacity() {
+        let body = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}"#;
+        assert_eq!(
+            classify(StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new(), body),
+            UpstreamFailure::RateLimited {
+                reason: RateLimitReason::Unknown,
+                reset_in: None
+            }
+        );
+    }
+
+    #[test]
+    fn specific_error_info_wins_over_status_and_prose_at_any_detail_index() {
+        for reason in [
+            "RATE_LIMIT_EXCEEDED",
+            "MODEL_CAPACITY_EXHAUSTED",
+            "QUOTA_EXHAUSTED",
+        ] {
+            let body = serde_json::json!({"error": {"status": "RESOURCE_EXHAUSTED",
+            "message": "quota exhausted", "details": [
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "7s"},
+                {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason}
+            ]}})
+            .to_string();
+            assert_eq!(
+                classify(StatusCode::TOO_MANY_REQUESTS, &HeaderMap::new(), &body),
+                UpstreamFailure::RateLimited {
+                    reason: parse_reason(reason).unwrap(),
+                    reset_in: Some(Duration::from_secs(7))
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn generic_status_does_not_override_specific_message() {
+        let body =
+            r#"{"error":{"status":"RESOURCE_EXHAUSTED","message":"too many requests per minute"}}"#;
+        assert_eq!(
+            classify_rate_limit_reason(StatusCode::TOO_MANY_REQUESTS, body),
+            RateLimitReason::RateLimitExceeded
+        );
+    }
+
+    #[test]
+    fn quota_failure_distinguishes_minute_and_daily_limits() {
+        for (id, reason) in [
+            (
+                "GenerateRequestsPerMinutePerProjectPerModel",
+                RateLimitReason::RateLimitExceeded,
+            ),
+            (
+                "GenerateRequestsPerDayPerProjectPerModel",
+                RateLimitReason::QuotaExhausted,
+            ),
+        ] {
+            let body = serde_json::json!({"error": {"status": "RESOURCE_EXHAUSTED", "details": [
+                {"@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [{"quotaId": id}]}
+            ]}}).to_string();
+            assert_eq!(
+                classify_rate_limit_reason(StatusCode::TOO_MANY_REQUESTS, &body),
+                reason
+            );
+        }
     }
 
     // -- top-level classification ------------------------------------------
@@ -956,13 +1061,13 @@ mod tests {
 
     #[test]
     fn the_quota_ladder_escalates_and_then_plateaus() {
-        let rung = |failures: u32| {
-            backoff_for(RateLimitReason::QuotaExhausted, failures, None, 0.5)
-        };
+        let rung =
+            |failures: u32| backoff_for(RateLimitReason::QuotaExhausted, failures, None, 0.5);
         assert_eq!(rung(0), Duration::from_secs(60));
-        assert_eq!(rung(1), Duration::from_secs(300));
-        assert_eq!(rung(2), Duration::from_secs(1800));
-        assert_eq!(rung(3), Duration::from_secs(7200));
+        assert_eq!(rung(1), Duration::from_secs(60));
+        assert_eq!(rung(2), Duration::from_secs(300));
+        assert_eq!(rung(3), Duration::from_secs(1800));
+        assert_eq!(rung(4), Duration::from_secs(7200));
         // Past the end, it stays at the longest rung rather than growing.
         assert_eq!(rung(99), Duration::from_secs(7200));
     }

@@ -346,6 +346,30 @@ mod tests {
     }
 
     #[test]
+    fn quota_keys_group_known_flash_variants_without_grouping_other_models() {
+        for model in [
+            "gemini-3.8-flash",
+            "gemini-3.8-flash-high",
+            "gemini-3.8-flash-low",
+            "gemini-3.8-flash-tiered",
+        ] {
+            assert_eq!(resolve_simple(model).quota_key(), "gemini:gemini-3.8-flash");
+        }
+        assert_eq!(
+            resolve_simple("gemini-3.1-pro-high").quota_key(),
+            "gemini:gemini-3.1-pro"
+        );
+        assert_eq!(
+            resolve_simple("gemini-3.8-flash-tiered-high").quota_key(),
+            "gemini:gemini-3.8-flash-tiered-high"
+        );
+        assert_eq!(
+            resolve_simple("claude-sonnet-4-6").quota_key(),
+            "claude:claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
     fn unknown_model_does_not_gain_a_tier_suffix() {
         // Guessing here would risk naming a model that does not exist.
         let resolved = resolve(ResolveInput {

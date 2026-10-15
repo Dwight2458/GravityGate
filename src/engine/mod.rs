@@ -102,7 +102,7 @@ impl Engine {
         let account = snapshot
             .accounts
             .iter()
-            .find(|account| account.is_available(crate::accounts::account::now_ms()))
+            .find(|account| account.is_eligible(crate::accounts::account::now_ms()))
             .ok_or_else(|| {
                 ProbeError::Dispatch(crate::engine::dispatch::DispatchError::NoAccounts)
             })?

@@ -81,6 +81,17 @@ impl CredentialCache {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn seed_for_test(&self, account: &Account) {
+        self.tokens.write().unwrap().insert(
+            account.credential_id(),
+            CachedToken {
+                access_token: "mock-access-token".into(),
+                expires_at: SystemTime::now() + Duration::from_secs(3600),
+            },
+        );
+    }
+
     /// Return a usable access token for an account, refreshing if needed.
     pub async fn access_token(
         &self,
