@@ -68,13 +68,13 @@ pub struct UpstreamCall {
 }
 
 /// What a successful attempt established.
-struct AttemptSuccess {
-    response: StreamingResponse,
-    project_id: String,
-    used_fallback_project: bool,
-    tier: String,
-    tier_id: Option<String>,
-    paid_tier_id: Option<String>,
+pub(super) struct AttemptSuccess {
+    pub(super) response: StreamingResponse,
+    pub(super) project_id: String,
+    pub(super) used_fallback_project: bool,
+    pub(super) tier: String,
+    pub(super) tier_id: Option<String>,
+    pub(super) paid_tier_id: Option<String>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -99,7 +99,7 @@ pub enum DispatchError {
 }
 
 /// Why one attempt stopped.
-enum AttemptError {
+pub(super) enum AttemptError {
     /// A classified upstream or transport failure. Retryable per policy.
     Upstream(Box<UpstreamFailure>),
     /// Something that retrying cannot fix.
@@ -209,7 +209,12 @@ impl Engine {
 
             let (index, credential_id) = current.clone().expect("just ensured");
             let snapshot = self.accounts.snapshot();
-            let Some(account) = snapshot.accounts.get(index).cloned() else {
+            let Some(account) = snapshot
+                .accounts
+                .iter()
+                .find(|a| a.credential_id() == credential_id)
+                .cloned()
+            else {
                 // The pool changed under us; start over with this one excluded.
                 tried.push(credential_id);
                 current = None;
@@ -227,7 +232,12 @@ impl Engine {
             attempts += 1;
             match self.attempt_once(prepared, &account, &endpoint).await {
                 Ok(success) => {
-                    self.record_success(&credential_id, &pool, &success);
+                    self.record_success(
+                        &credential_id,
+                        &pool,
+                        &success,
+                        account.verification_required_at,
+                    );
                     return Ok(UpstreamCall {
                         response: success.response,
                         account_index: index,
@@ -308,6 +318,9 @@ impl Engine {
 
         loop {
             let now = now_ms();
+            self.accounts
+                .reload()
+                .map_err(|error| DispatchError::NoCandidate(error.to_string()))?;
             let snapshot = self.accounts.snapshot();
 
             if snapshot.accounts.is_empty() {
@@ -330,7 +343,17 @@ impl Engine {
                     Some(only) => account.credential_id() == only,
                     None => true,
                 })
-                .map(|(index, account)| candidate(index, account, pool, now))
+                .map(|(index, account)| {
+                    let mut candidate = candidate(index, account, pool, now);
+                    if self
+                        .verification_monitor_active
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        && account.verification_required
+                    {
+                        candidate.is_available = false;
+                    }
+                    candidate
+                })
                 .collect();
 
             if remaining.is_empty() {
@@ -391,7 +414,7 @@ impl Engine {
     }
 
     /// One upstream attempt: resolve credentials, wrap, send.
-    async fn attempt_once(
+    pub(super) async fn attempt_once(
         &self,
         prepared: &Prepared,
         account: &Account,
@@ -572,7 +595,13 @@ impl Engine {
         }
     }
 
-    fn record_success(&self, credential_id: &str, pool: &str, success: &AttemptSuccess) {
+    fn record_success(
+        &self,
+        credential_id: &str,
+        pool: &str,
+        success: &AttemptSuccess,
+        verification_at: Option<i64>,
+    ) {
         let now = now_ms();
         self.router.record_success(credential_id, now);
         self.router.clear_quota_failures(credential_id, pool);
@@ -592,7 +621,11 @@ impl Engine {
             // request, so whatever challenge it once demanded is satisfied.
             // Without this the hold would persist even though the account
             // works — the state that trapped re-added accounts in `verify`.
-            account.clear_verification();
+            if account.verification_required_at == verification_at
+                && account.verification_check.id.is_none()
+            {
+                account.clear_verification();
+            }
 
             // Write the resolved project back, so the next request skips
             // discovery. A project that only worked by falling back to the

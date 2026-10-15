@@ -57,6 +57,8 @@
   .pill.limited { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
   .pill.cooling { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
   .pill.verify  { color: var(--warn); background: rgba(226,179,65,.12);  border-color: rgba(226,179,65,.3); }
+  .pill.checking { color: var(--accent); border-color: var(--accent); }
+  button.recheck { margin-left: 8px; cursor: pointer; }
   .pill.ineligible, .pill.disabled { color: var(--bad); background: rgba(226,89,107,.12); border-color: rgba(226,89,107,.3); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
   .good { color: var(--ok); } .sorry { color: var(--bad); } .muted { color: var(--dim); }
@@ -124,7 +126,7 @@ async function get(path) {
   const text = await response.text();
   let payload;
   try { payload = JSON.parse(text); } catch { throw new Error(`${path}: ${response.status}`); }
-  if (!response.ok) {
+  if (!response.ok && !(path === '/health' && Array.isArray(payload?.accounts))) {
     throw new Error(payload?.error?.message || `${path}: ${response.status}`);
   }
   return payload;
@@ -147,11 +149,24 @@ function ago(ms) {
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-function statusCell(account) {
+function statusCell(account, monitorEnabled) {
   const detail = account.detail ? `<span class="muted"> · ${esc(account.detail)}</span>` : '';
   const wait = account.available_in_seconds != null
     ? ` <span class="muted">(${elapsed(account.available_in_seconds)} left)</span>` : '';
-  return `<span class="pill ${esc(account.status)}">${esc(account.status)}</span>${wait}${detail}`;
+  const check = account.verification;
+  let verification = '';
+  if (check?.state === 'waiting') {
+    const next = check.next_check_at == null ? 'due' : `${elapsed(Math.max(0, (check.next_check_at - Date.now()) / 1000))}`;
+    verification = monitorEnabled
+      ? ` <span class="muted">waiting for verification · next check in ${esc(next)}</span>`
+      : ' <span class="muted">waiting for verification · automatic checks disabled</span>';
+  } else if (check?.state === 'recovered') {
+    verification = ` <span class="good">verified ${esc(ago(check.recovered_at))}</span>`;
+  }
+  if (check?.last_result && check.last_result !== 'recovered') {
+    verification += ` <span class="muted">last: ${esc(check.last_result)}</span>`;
+  }
+  return `<span class="pill ${esc(account.status)}">${esc(account.status)}</span>${wait}${detail}${verification}`;
 }
 
 function renderAccounts(health, perAccount) {
@@ -168,10 +183,12 @@ function renderAccounts(health, perAccount) {
     const stats = byId.get(account.credential_id) || { requests: 0, errors: 0 };
     const verify = account.verification_url
       ? ` <a href="${esc(account.verification_url)}" target="_blank" rel="noreferrer">verify</a>` : '';
+    const recheck = account.status === 'verify' || account.status === 'checking'
+      ? ` <button class="recheck" data-account="${esc(account.credential_id)}" ${account.status === 'checking' ? 'disabled' : ''}>${account.status === 'checking' ? 'Checking…' : 'Recheck now'}</button>` : '';
     return `<tr>
       <td>${esc(account.label)}</td>
       <td class="mono">${esc(account.credential_id)}</td>
-      <td>${statusCell(account)}${verify}</td>
+      <td>${statusCell(account, health.verification_monitor_enabled)}${verify}${recheck}</td>
       <td>${esc(account.tier || '—')}</td>
       <td class="mono">${esc(account.project_id || '—')}</td>
       <td class="num">${stats.requests}</td>
@@ -179,6 +196,25 @@ function renderAccounts(health, perAccount) {
     </tr>`;
   }).join('');
 }
+
+document.getElementById('accounts').addEventListener('click', async (event) => {
+  const button = event.target.closest('button.recheck');
+  if (!button || button.disabled) return;
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  try {
+    const response = await fetch(`/api/accounts/${encodeURIComponent(button.dataset.account)}/recheck`, { method: 'POST' });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error?.message || `HTTP ${response.status}`);
+    if (payload.verification?.state !== 'recovered') {
+      alert(`Recovery not confirmed: ${payload.verification?.last_result || payload.verification?.state}`);
+    }
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    await refresh();
+  }
+});
 
 function card(label, value, sub) {
   return `<div class="card"><div class="label">${esc(label)}</div>

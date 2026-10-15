@@ -197,6 +197,11 @@ pub enum AccountCommand {
         /// Email, credential id prefix, or index. Defaults to every account.
         selector: Option<String>,
     },
+    /// Immediately test model generation through the running service.
+    Recheck {
+        /// Email, credential id prefix, or index.
+        selector: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

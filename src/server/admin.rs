@@ -12,7 +12,7 @@
 //! reference implementations hard to operate.
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -28,12 +28,13 @@ pub struct AccountStatus {
     label: String,
     credential_id: String,
     enabled: bool,
-    /// `ready`, `disabled`, `ineligible`, `verify`, `cooling`, or `limited`.
+    /// `ready`, `disabled`, `ineligible`, `verify`, `checking`, `cooling`, or `limited`.
     status: &'static str,
     detail: Option<String>,
     /// Where to send an account holder who has to clear a verification demand.
     #[serde(skip_serializing_if = "Option::is_none")]
     verification_url: Option<String>,
+    verification: crate::engine::verification::VerificationView,
     #[serde(skip_serializing_if = "Option::is_none")]
     tier: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -45,6 +46,7 @@ pub struct AccountStatus {
 
 #[derive(Debug, Serialize)]
 pub struct Health {
+    verification_monitor_enabled: bool,
     status: &'static str,
     accounts_configured: usize,
     accounts_available: usize,
@@ -56,6 +58,9 @@ pub struct Health {
 
 /// `GET /health`.
 pub async fn health(State(state): State<SharedState>) -> Response {
+    if let Err(error) = state.engine.accounts.reload() {
+        return error::ApiError::unavailable(error.to_string()).into_response();
+    }
     let now = crate::accounts::account::now_ms();
     let snapshot = state.engine.accounts.snapshot();
 
@@ -72,6 +77,10 @@ pub async fn health(State(state): State<SharedState>) -> Response {
 
     let stats = state.engine.signatures.stats();
     let health = Health {
+        verification_monitor_enabled: state
+            .engine
+            .verification_monitor_active
+            .load(std::sync::atomic::Ordering::Relaxed),
         // `degraded` rather than `unhealthy`: some accounts working is a working
         // gateway, and a healthcheck that fails on a partial outage would take
         // the last working accounts out of service too.
@@ -109,6 +118,7 @@ fn describe(account: &Account, now: i64) -> AccountStatus {
         status,
         detail,
         verification_url: account.verification_url.clone(),
+        verification: crate::engine::verification::view(account, now),
         tier: account.captured_tier_id.clone(),
         project_id: account.project_id.clone(),
         available_in_seconds: available_in,
@@ -129,6 +139,13 @@ fn condition(account: &Account, now: i64) -> (&'static str, Option<String>, Opti
     }
     if account.account_ineligible {
         return ("ineligible", account.account_ineligible_reason.clone(), None);
+    }
+    if account.verification_check.running(now) {
+        return (
+            "checking",
+            Some("verification check in progress".into()),
+            None,
+        );
     }
     if account.verification_required {
         return (
@@ -165,6 +182,30 @@ fn condition(account: &Account, now: i64) -> (&'static str, Option<String>, Opti
         );
     }
     ("ready", None, None)
+}
+
+/// Authenticated immediate check against this account; HTTP 200 means the check
+/// completed, while `verification.state` says whether it actually recovered.
+pub async fn recheck_verification(
+    State(state): State<SharedState>,
+    Path(selector): Path<String>,
+) -> Response {
+    use crate::engine::verification::CheckError;
+    match state.engine.recheck_verification(&selector, true).await {
+        Ok(verification) => {
+            Json(serde_json::json!({ "verification": verification })).into_response()
+        }
+        Err(error) => {
+            let status = match &error {
+                CheckError::NotFound => StatusCode::NOT_FOUND,
+                CheckError::Busy | CheckError::Blocked => StatusCode::CONFLICT,
+                CheckError::Store(_) => StatusCode::SERVICE_UNAVAILABLE,
+                CheckError::Model => StatusCode::BAD_REQUEST,
+            };
+            error::ApiError::new(status, "verification_check_error", error.to_string())
+                .into_response()
+        }
+    }
 }
 
 fn describe_cooldown(reason: CooldownReason) -> &'static str {
@@ -385,7 +426,7 @@ fn publish_account_counts(state: &SharedState) {
     }
     // Publish zeroes for conditions that are currently empty, so a graph shows a
     // line dropping to zero rather than a gap.
-    for condition in ["ready", "limited", "cooling", "verify", "ineligible", "disabled"] {
+    for condition in ["ready", "limited", "cooling", "verify", "checking", "ineligible", "disabled"] {
         counts.entry(condition).or_insert(0);
     }
 

@@ -201,6 +201,53 @@ async fn cmd_account(config_path: Option<PathBuf>, command: AccountCommand) -> R
             let store = open_store()?;
             verify_accounts(config, store, selector).await
         }
+        AccountCommand::Recheck { selector } => {
+            let config = load_config(config_path)?;
+            let storage = open_store()?.snapshot();
+            let account = &storage.accounts[resolve_selector(&storage, &selector)?];
+            let host = match config.server.host.as_str() {
+                "0.0.0.0" => "127.0.0.1".to_string(),
+                "::" => "[::1]".to_string(),
+                value if value.contains(':') => format!("[{value}]"),
+                value => value.to_string(),
+            };
+            let mut url = url::Url::parse(&format!("http://{host}:{}/", config.server.port))?;
+            url.path_segments_mut()
+                .map_err(|_| anyhow::anyhow!("invalid server URL"))?
+                .extend(["api", "accounts", &account.credential_id(), "recheck"]);
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(config.verification.timeout_secs + 15))
+                .build()?;
+            let mut request = client.post(url);
+            if let Some(key) = config.server.api_keys.first() {
+                request = request.bearer_auth(key);
+            }
+            let response = request
+                .send()
+                .await
+                .context("could not contact the running service; start gravitygate serve first")?;
+            let status = response.status();
+            let body: serde_json::Value = response
+                .json()
+                .await
+                .context("service did not return JSON; ensure it is the updated GravityGate")?;
+            if !status.is_success() {
+                bail!(
+                    "{}",
+                    body.pointer("/error/message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("verification check failed")
+                );
+            }
+            println!("{} ({})", account.label(), &account.credential_id()[..8]);
+            println!("{}", serde_json::to_string_pretty(&body["verification"])?);
+            if body.pointer("/verification/state").and_then(|v| v.as_str()) != Some("recovered") {
+                bail!(
+                    "account recovery is not confirmed; see the check result and next_check_at above"
+                );
+            }
+            Ok(())
+        }
     }
 }
 
@@ -314,7 +361,7 @@ fn replace_credential(existing: &mut Account, account: Account) {
     // limits stay — same account, same upstream quota pool — because a re-login
     // must not launder away a limit the upstream is still enforcing.
     existing.enabled = true;
-    existing.clear_verification();
+    existing.reset_verification();
     existing.account_ineligible = false;
     existing.account_ineligible_at = None;
     existing.account_ineligible_reason = None;
@@ -336,15 +383,25 @@ where
     let storage = store.snapshot();
     let index = resolve_selector(&storage, selector)?;
     let label = storage.accounts[index].label();
+    let credential_id = storage.accounts[index].credential_id();
+    let mut applied = false;
 
     store.mutate(|current| {
         // The snapshot index may be stale if the file changed underneath us.
-        if index >= current.accounts.len() {
+        let Some(index) = current
+            .accounts
+            .iter()
+            .position(|a| a.credential_id() == credential_id)
+        else {
             return false;
-        }
+        };
         change(current, index);
+        applied = true;
         true
     })?;
+    if !applied {
+        bail!("account was removed before the change could be saved");
+    }
 
     Ok(label)
 }
@@ -437,6 +494,9 @@ fn describe_status(account: &Account, now: i64) -> (&'static str, String) {
                 .unwrap_or_else(|| "account reported as ineligible".into()),
         );
     }
+    if account.verification_check.running(now) {
+        return ("checking", "verification check in progress".into());
+    }
     if account.verification_required {
         // The hold is not indefinite: dispatch re-tests it once the recheck
         // window opens, and a served request clears it. Saying when keeps the
@@ -450,7 +510,22 @@ fn describe_status(account: &Account, now: i64) -> (&'static str, String) {
             .verification_url
             .clone()
             .unwrap_or_else(|| "verification required".into());
-        return ("verify", format!("{when}, {url}"));
+        let last_check = account
+            .verification_check
+            .last_checked_at
+            .map(|at| {
+                format!(
+                    "; last check {} ago: {}",
+                    humanise_ms((now - at).max(0)),
+                    account
+                        .verification_check
+                        .last_result
+                        .as_deref()
+                        .unwrap_or("unknown"),
+                )
+            })
+            .unwrap_or_default();
+        return ("verify", format!("{when}, {url}{last_check}"));
     }
     if let Some(until) = account.cooling_down_until.filter(|until| *until > now) {
         let reason = account
@@ -474,7 +549,12 @@ fn describe_status(account: &Account, now: i64) -> (&'static str, String) {
             format!("{}, {} left", pools.join("+"), humanise_ms(reset - now)),
         );
     }
-    ("ready", String::new())
+    let detail = account
+        .verification_check
+        .recovered_at
+        .map(|at| format!("verified {} ago", humanise_ms((now - at).max(0))))
+        .unwrap_or_default();
+    ("ready", detail)
 }
 
 fn describe_cooldown(reason: CooldownReason) -> &'static str {
@@ -617,24 +697,13 @@ async fn verify_accounts(
 
         match engine.prepare_account(account).await {
             Ok(prepared) => {
-                // Discovery succeeded, so the credential works. Whatever
-                // verification hold was recorded is stale — clear it, or the
-                // account would stay in `verify` forever.
-                store
-                    .mutate(|storage| {
-                        match storage
-                            .accounts
-                            .iter_mut()
-                            .find(|stored| stored.credential_id() == account.credential_id())
-                        {
-                            Some(stored) => {
-                                stored.clear_verification();
-                                true
-                            }
-                            None => false,
-                        }
-                    })
-                    .ok();
+                // Project discovery does not prove generation was unblocked.
+                if account.verification_required {
+                    println!(
+                        "  note      : discovery only; run gravitygate account recheck {} to confirm recovery",
+                        &account.credential_id()[..8]
+                    );
+                }
                 println!("  tier      : {}", prepared.tier);
                 if prepared.used_fallback_project {
                     println!(
@@ -1029,6 +1098,13 @@ soft_quota_threshold = 0.20
 quota_refresh_secs = 1800
 token_bucket_max = 10.0
 token_bucket_refill_per_min = 6.0
+
+[verification]
+# Only accounts awaiting verification are checked automatically while serving.
+enabled = true
+model = "gemini-3.8-flash-low"
+scan_interval_secs = 15
+timeout_secs = 60
 
 [routing]
 max_wait_before_error_secs = 120

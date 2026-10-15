@@ -32,6 +32,28 @@ pub struct Config {
     pub logging: LoggingConfig,
     pub metrics: MetricsConfig,
     pub audit: AuditConfig,
+    pub verification: VerificationConfig,
+}
+
+/// Background checks run only for accounts awaiting holder verification.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VerificationConfig {
+    pub enabled: bool,
+    pub model: String,
+    pub scan_interval_secs: u64,
+    pub timeout_secs: u64,
+}
+
+impl Default for VerificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            model: "gemini-3.8-flash-low".into(),
+            scan_interval_secs: 15,
+            timeout_secs: 60,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -410,6 +432,14 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
+        if self.verification.scan_interval_secs == 0
+            || !(1..=300).contains(&self.verification.timeout_secs)
+            || self.verification.model.trim().is_empty()
+        {
+            return Err(ConfigError::Invalid(
+                "verification requires a positive scan interval, timeout_secs between 1 and 300, and a model".into(),
+            ));
+        }
         if self.server.max_request_body_bytes == 0 {
             return Err(ConfigError::Invalid(
                 "server.max_request_body_bytes must not be zero".into(),
@@ -509,6 +539,25 @@ mod tests {
         assert!(config.validate().is_ok());
         let config: Config = toml::from_str("[server]\nmax_request_body_bytes = 0").unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn verification_configuration_has_safe_defaults_and_validates_bounds() {
+        let defaults = Config::default();
+        assert!(defaults.verification.enabled);
+        assert_eq!(defaults.verification.scan_interval_secs, 15);
+        let configured: Config = toml::from_str("[verification]\nenabled = false\nmodel = 'gemini-3.8-flash'\nscan_interval_secs = 30\ntimeout_secs = 120").unwrap();
+        assert!(!configured.verification.enabled);
+        assert!(configured.validate().is_ok());
+        for toml in [
+            "scan_interval_secs = 0",
+            "timeout_secs = 0",
+            "timeout_secs = 301",
+            "model = ''",
+        ] {
+            let config: Config = toml::from_str(&format!("[verification]\n{toml}")).unwrap();
+            assert!(config.validate().is_err());
+        }
     }
 
     #[test]

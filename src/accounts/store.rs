@@ -222,11 +222,25 @@ impl AccountStore {
         F: FnOnce(&mut AccountStorage) -> bool,
     {
         let mut guard = self.inner.lock().expect("account store poisoned");
-        if !change(&mut guard) {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent).map_err(|source| StoreError::Write {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+            restrict_directory(parent);
+        }
+        // Lock the entire read/modify/write transaction, not just the rename:
+        // otherwise a CLI command and the running monitor overwrite each other.
+        let _lock = FileLock::acquire(&self.path, self.lock_timeout, self.lock_stale_after)?;
+        let mut fresh = Self::load(&self.path)?.snapshot();
+        if !change(&mut fresh) {
+            *guard = fresh;
             return Ok(());
         }
-        guard.clamp_indices();
-        self.persist(&guard)
+        fresh.clamp_indices();
+        self.persist(&fresh)?;
+        *guard = fresh;
+        Ok(())
     }
 
     /// Write the pool to disk atomically, under the advisory lock.
@@ -238,8 +252,6 @@ impl AccountStore {
             })?;
             restrict_directory(parent);
         }
-
-        let _lock = FileLock::acquire(&self.path, self.lock_timeout, self.lock_stale_after)?;
 
         let serialised = serde_json::to_vec_pretty(storage).map_err(|source| StoreError::Parse {
             path: self.path.clone(),
@@ -276,8 +288,8 @@ impl AccountStore {
     /// Re-read the file, discarding in-memory state. Used after an external
     /// process may have changed the pool.
     pub fn reload(&self) -> Result<(), StoreError> {
-        let fresh = Self::load(self.path.clone())?;
         let mut guard = self.inner.lock().expect("account store poisoned");
+        let fresh = Self::load(self.path.clone())?;
         *guard = fresh.snapshot();
         Ok(())
     }
@@ -507,6 +519,62 @@ mod tests {
         assert_eq!(store_a.snapshot().accounts.len(), 1, "stale view");
         store_a.reload().unwrap();
         assert_eq!(store_a.snapshot().accounts.len(), 2);
+    }
+
+    #[test]
+    fn independent_process_views_merge_changes_under_the_file_lock() {
+        let dir = temp_dir("separate-process-views");
+        let path = dir.join("accounts.json");
+        let first = AccountStore::load(&path).unwrap();
+        first
+            .mutate(|s| {
+                s.accounts.push(Account::new("held"));
+                true
+            })
+            .unwrap();
+        let stale = AccountStore::load(&path).unwrap();
+        first
+            .mutate(|s| {
+                s.accounts[0].enabled = false;
+                true
+            })
+            .unwrap();
+        stale
+            .mutate(|s| {
+                s.accounts.push(Account::new("new"));
+                true
+            })
+            .unwrap();
+        let actual = AccountStore::load(&path).unwrap().snapshot();
+        assert_eq!(actual.accounts.len(), 2);
+        assert!(
+            !actual.accounts[0].enabled,
+            "stale writer must preserve external edits"
+        );
+        assert!(!stale.snapshot().accounts[0].enabled);
+    }
+
+    #[test]
+    fn corruption_after_loading_does_not_get_overwritten_by_a_stale_writer() {
+        let dir = temp_dir("corrupt-after-load");
+        let path = dir.join("accounts.json");
+        let store = AccountStore::load(&path).unwrap();
+        store
+            .mutate(|s| {
+                s.accounts.push(Account::new("held"));
+                true
+            })
+            .unwrap();
+        fs::write(&path, "broken-json").unwrap();
+        assert!(matches!(
+            store.mutate(|s| {
+                s.accounts.clear();
+                true
+            }),
+            Err(StoreError::Parse { .. })
+        ));
+        assert_eq!(fs::read_to_string(path).unwrap(), "broken-json");
+        assert_eq!(store.snapshot().accounts.len(), 1);
     }
 
     #[test]

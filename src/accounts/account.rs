@@ -31,6 +31,25 @@ pub enum CooldownReason {
     ValidationRequired,
 }
 
+/// Persisted evidence and a bounded lease shared by server and CLI processes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VerificationCheck {
+    pub id: Option<String>,
+    pub started_at: Option<i64>,
+    pub lease_until: Option<i64>,
+    pub last_checked_at: Option<i64>,
+    pub last_result: Option<String>,
+    pub recovered_at: Option<i64>,
+    pub failures: u32,
+}
+
+impl VerificationCheck {
+    pub fn running(&self, now: i64) -> bool {
+        self.id.is_some() && self.lease_until.is_some_and(|at| at > now)
+    }
+}
+
 /// A single account in the pool.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Account {
@@ -90,6 +109,10 @@ pub struct Account {
     /// interval. Reset when the upstream serves the account again.
     #[serde(default)]
     pub verification_attempts: u32,
+    #[serde(default)]
+    pub verification_check: VerificationCheck,
+    #[serde(default)]
+    pub verification_revision: u64,
 
     /// Set when the upstream reports the account as ineligible.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -169,6 +192,8 @@ impl Account {
             verification_url: None,
             verification_recheck_at: None,
             verification_attempts: 0,
+            verification_check: VerificationCheck::default(),
+            verification_revision: 0,
             account_ineligible: false,
             account_ineligible_at: None,
             account_ineligible_reason: None,
@@ -209,6 +234,7 @@ impl Account {
     /// Account-wide holds, independent of which model is being requested.
     pub fn is_eligible(&self, now: i64) -> bool {
         self.enabled
+            && !self.verification_check.running(now)
             && !self.verification_blocks_dispatch(now)
             && !self.account_ineligible
             && self.cooling_down_until.is_none_or(|until| until <= now)
@@ -304,6 +330,8 @@ impl Account {
 
     pub fn mark_verification_required(&mut self, url: Option<String>, reason: impl Into<String>) {
         let now = now_ms();
+        let previous_check = self.verification_check.clone();
+        self.verification_revision = self.verification_revision.saturating_add(1);
         self.verification_required = true;
         self.verification_required_at = Some(now);
         self.verification_attempts = self.verification_attempts.saturating_add(1);
@@ -311,11 +339,31 @@ impl Account {
             Some(now + verification_recheck_interval_ms(self.verification_attempts));
         self.verification_url = url;
         self.verification_required_reason = Some(reason.into());
+        self.verification_check = VerificationCheck {
+            last_checked_at: Some(now),
+            last_result: Some("verification_required".into()),
+            failures: self.verification_check.failures,
+            ..VerificationCheck::default()
+        };
+        if previous_check.running(now) {
+            self.verification_check.id = previous_check.id;
+            self.verification_check.started_at = previous_check.started_at;
+            self.verification_check.lease_until = previous_check.lease_until;
+        }
     }
 
     /// Clear the verification hold: the upstream just served this account, so
     /// the demand, whatever it once was, is satisfied.
     pub fn clear_verification(&mut self) {
+        self.verification_revision = self.verification_revision.saturating_add(1);
+        if self.verification_required {
+            self.verification_check = VerificationCheck {
+                last_checked_at: Some(now_ms()),
+                last_result: Some("recovered".into()),
+                recovered_at: Some(now_ms()),
+                ..VerificationCheck::default()
+            };
+        }
         self.verification_required = false;
         self.verification_required_at = None;
         self.verification_required_reason = None;
@@ -332,13 +380,27 @@ impl Account {
 
     /// Clear operator-resolvable holds so an account can be retried.
     pub fn clear_holds(&mut self) {
-        self.clear_verification();
+        self.reset_verification();
         self.account_ineligible = false;
         self.account_ineligible_at = None;
         self.account_ineligible_reason = None;
         self.cooling_down_until = None;
         self.cooldown_reason = None;
         self.rate_limit_reset_times.clear();
+    }
+
+    /// An operator reset is not proof of a successful upstream check. Keep an
+    /// active lease until its future finishes so resets cannot start two probes.
+    pub fn reset_verification(&mut self) {
+        let previous = self.verification_check.clone();
+        self.clear_verification();
+        self.verification_check = VerificationCheck::default();
+        if previous.running(now_ms()) {
+            self.verification_check.id = previous.id;
+            self.verification_check.started_at = previous.started_at;
+            self.verification_check.lease_until = previous.lease_until;
+            self.verification_check.last_result = Some("operator_reset".into());
+        }
     }
 
     /// Split a packed refresh token into its parts.

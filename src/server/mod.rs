@@ -86,6 +86,10 @@ pub fn app_with_state(state: SharedState) -> Router {
         .route("/api/stats", get(admin::stats))
         .route("/api/stats/accounts", get(admin::stats_by_account))
         .route("/api/requests", get(admin::requests))
+        .route(
+            "/api/accounts/{selector}/recheck",
+            post(admin::recheck_verification),
+        )
         .fallback(not_found)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -188,14 +192,51 @@ pub async fn serve(config: Config, store: AccountStore) -> anyhow::Result<()> {
     // daily.
     spawn_retention(state.clone(), retention);
 
-    let app = app_with_state(state);
+    let app = app_with_state(state.clone());
     let listener = TcpListener::bind(&address).await?;
+    let monitor = spawn_verification_monitor(state);
     tracing::info!(%address, "gravitygate listening");
 
-    axum::serve(listener, app)
+    let result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        .await;
+    drop(monitor);
+    result?;
     Ok(())
+}
+
+/// A scoped task: shutdown or cancellation drops its network future and lease.
+struct VerificationMonitor(tokio::task::JoinHandle<()>);
+
+impl Drop for VerificationMonitor {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+fn spawn_verification_monitor(state: SharedState) -> VerificationMonitor {
+    state.engine.verification_monitor_active.store(
+        state.engine.config.verification.enabled,
+        std::sync::atomic::Ordering::Relaxed,
+    );
+    VerificationMonitor(tokio::spawn(async move {
+        let mut timer = tokio::time::interval(std::time::Duration::from_secs(
+            state.engine.config.verification.scan_interval_secs.max(1),
+        ));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            timer.tick().await;
+            let result = if state.engine.config.verification.enabled {
+                state.engine.recheck_due_verifications().await
+            } else {
+                // Even with automatic generation disabled, import CLI edits.
+                state.engine.accounts.reload()
+            };
+            if let Err(error) = result {
+                tracing::warn!(%error, "verification monitor scan failed");
+            }
+        }
+    }))
 }
 
 /// Prune the audit log at startup and then daily.

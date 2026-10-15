@@ -913,6 +913,50 @@ invalid-schema requests made no upstream calls. The local port-18080 config now
 explicitly sets the 16-MiB limit; the old executable was saved under
 `target/gravitygate-before-body-limit-fix.exe`.
 
+## Background verification recovery
+
+The browser completion page does not notify this gateway. Previous recovery
+depended on real traffic selecting a held account after its recheck window,
+and project discovery could prematurely clear the hold. The service now scans
+held accounts every 15 seconds and uses a small pinned generation request with
+a 60-second total deadline. Only visible output plus STOP and a clean stream
+end confirms recovery. Failed checks wait 60, 120, then 300 seconds, preserving
+longer real quota reset hints. Ready accounts stop being checked.
+
+The dashboard and `account recheck <selector>` call the same authenticated
+immediate-check endpoint. Persisted leases coordinate checks across processes,
+block normal selection during a check, release on cancellation/timeout, and
+reject stale completions after an operator reset or account removal. Background
+monitoring owns verification recovery while serving; unrelated healthy accounts
+continue to serve. A confirmed recovery restores the old verification-related
+health score without clearing unrelated model quotas or the token budget.
+
+Health, dashboard and CLI expose waiting/checking/recovered evidence and times.
+The dashboard can still render accounts when `/health` returns 503 because all
+accounts are awaiting action. Account mutations now lock the entire disk
+read/modify/write operation, importing external CLI changes rather than
+overwriting them from stale process snapshots. Account selection and health
+queries also reload state. Discovery-only `account verify` no longer clears
+generation verification holds; manual resets do not claim proven recovery.
+
+Validation passed 733 library tests, 15 CLI tests and Clippy. Local upstream
+tests cover backoff, duplicate checks across engines, normal traffic on another
+account, timeout/cancellation, late completion after removal, quota hints,
+expired leases, and empty/malformed/truncated/error streams. Dashboard script
+checks cover 503 rendering, the POST action, checking and recovered states.
+After installing the release executable, the actual port-18080 service exposed
+an enabled monitor; a pinned recheck of the held account returned
+`waiting` / `verification_required`, while the healthy account returned
+`recovered` after a complete real generation. Both CLI and health reflected
+those outcomes without a restart. The temporary validation service was stopped.
+The prior executable is saved at
+`target/gravitygate-before-verification-monitor.exe`.
+
+Additional reset/new-challenge races retain an active lease until its network
+future finishes, while a persisted revision prevents that old result from
+overwriting the newer decision. The completed suite also passed three
+consecutive stability runs after those concurrency checks were added.
+
 ## Next, in order
 
 Everything in the approved plan is now built. What remains is validation and

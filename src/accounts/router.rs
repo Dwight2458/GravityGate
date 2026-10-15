@@ -500,6 +500,12 @@ impl AccountRouter {
         }, true);
     }
 
+    /// A completed verification probe is fresh proof of this account's health.
+    /// Keep quota and token budgets intact, but remove the old failure score.
+    pub fn record_verification_recovery(&self, credential_id: &str, now_ms: i64) {
+        self.adjust_health(credential_id, now_ms, |_, _| 100.0, true);
+    }
+
     pub fn record_rate_limit(&self, credential_id: &str, now_ms: i64) {
         self.adjust_health(
             credential_id,

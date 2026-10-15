@@ -8,6 +8,7 @@
 pub mod credentials;
 pub mod dispatch;
 pub mod retry;
+pub mod verification;
 
 use std::time::Duration;
 
@@ -38,6 +39,7 @@ pub const PROBE_BODY_LIMIT: usize = 4096;
 
 /// Shared state for the whole gateway.
 pub struct Engine {
+    pub(crate) verification_monitor_active: std::sync::atomic::AtomicBool,
     pub config: Config,
     pub accounts: AccountStore,
     pub upstream: UpstreamClient,
@@ -66,6 +68,7 @@ impl Engine {
         };
         let strategy = config.accounts.strategy;
         Ok(Self {
+            verification_monitor_active: std::sync::atomic::AtomicBool::new(false),
             config,
             accounts,
             upstream: UpstreamClient::new()?,

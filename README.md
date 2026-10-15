@@ -109,6 +109,58 @@ warning logs include the configured limit, declared length when present, and
 observed bytes read. Other JSON errors retain their 400/415/422 status in the
 same error envelope. Restart the service after changing the limit.
 
+## Verification recovery
+
+While `gravitygate serve` is running, accounts awaiting browser verification
+are checked automatically. The service scans every 15 seconds and sends a small
+generation request only when a held account's check is due. Failed checks back
+off for 1 minute, 2 minutes, then at most 5 minutes; upstream quota reset hints
+can extend that wait. Ready, disabled and ineligible accounts are not polled.
+These checks use model quota. To change the probe model or disable automatic
+generation, add:
+
+```toml
+[verification]
+enabled = true
+model = "gemini-3.8-flash-low"
+scan_interval_secs = 15
+timeout_secs = 60
+```
+
+After completing the browser challenge **with the affected Google account**,
+use the dashboard's **Recheck now** button or run:
+
+```sh
+gravitygate account recheck 02b69ba2
+```
+
+This calls `POST /api/accounts/{selector}/recheck` on the running service using
+the host, port and gateway key from the same config. It skips the verification
+timer, but respects disable/ineligibility, real quota and cooldown gates. A
+duplicate in-flight check or repeated start within 15 seconds returns 409.
+It never rotates to another account. `account verify` checks only authentication
+and project discovery; `account clear-holds` is an operator reset and does not
+prove recovery. Prefer `account recheck` after finishing a challenge.
+
+Recovery requires visible model output, a STOP finish reason and a clean stream
+end, not just HTTP 200. Once confirmed, the hold and link clear automatically,
+the old verification failure health score recovers, and periodic checks stop.
+`account list` shows `verify`/`checking` and confirmed recovery time. `/health`
+and the dashboard expose `verification.state` (`waiting`, `checking`, `recovered`,
+`unchecked`, or `blocked`), `next_check_at`, `last_checked_at`, `last_result` and
+`recovered_at`; timestamps are Unix milliseconds. State queries do not trigger
+generation. The immediate-check endpoint's HTTP 200 means the check completed;
+inspect `verification.state` for its outcome. The CLI exits nonzero if recovery
+was not confirmed.
+
+Account writes now merge the latest disk state under the file lock; checks use
+a persisted per-account lease to prevent duplicate probes across processes and
+ignore late results after resets/removals. Timeout or cancellation releases the
+lease; a crashed process's lease expires after its timeout plus 30 seconds.
+CLI edits load on the next scan, health query or account selection, without a
+service restart. Reload the service once after upgrading the executable or
+changing config values.
+
 ## Design decisions
 
 Three choices shape everything else.
