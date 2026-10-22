@@ -1,0 +1,4340 @@
+[
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-pro-low",
+      "tier": "medium",
+      "budget": 1001,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65535,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1001
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-pro-low",
+      "tier": "low",
+      "budget": 1001,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65535,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1001
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-pro-agent",
+      "tier": "high",
+      "budget": 10001,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65535,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10001
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-pro-agent",
+      "tier": "high",
+      "budget": 10001,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65535,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10001
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-pro-low",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65535
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-pro",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-pro-low",
+      "tier": "medium",
+      "budget": 1001,
+      "quota_key": "gemini:gemini-3.1-pro",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 2025,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1001
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.5-flash-low",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.5-flash-extra-low",
+      "tier": "low",
+      "budget": 1000,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3-flash-agent",
+      "tier": "high",
+      "budget": 10000,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3-flash-agent",
+      "tier": "high",
+      "budget": 10000,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.5-flash-low",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.5-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.5-flash-low",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.5-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5024,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-low",
+      "tier": "low",
+      "budget": 1000,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-high",
+      "tier": "high",
+      "budget": 10000,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-high",
+      "tier": "high",
+      "budget": 10000,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 10000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-medium",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.6-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.6-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.6-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5024,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-low",
+      "tier": "low",
+      "budget": 1000,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-medium",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.7-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.7-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.7-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5024,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-low",
+      "tier": "low",
+      "budget": 1000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 1000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5024,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "low",
+      "budget": 8192,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 8192
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "high",
+      "budget": 32768,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 32768
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "high",
+      "budget": 32768,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 32768
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33792,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "low",
+      "budget": 8192,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 8192
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "high",
+      "budget": 32768,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 32768
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "high",
+      "budget": 32768,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 32768
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-opus-4-6-thinking",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "claude-opus-4-6-thinking",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-opus-4-6-thinking",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33792,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "medium",
+      "budget": 8192,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 8192
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "low",
+      "budget": 4096,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4096
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "high",
+      "budget": 16384,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "high",
+      "budget": 16384,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gpt-oss-120b-medium",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gpt-oss-120b-medium",
+      "tier": "medium",
+      "budget": 8192,
+      "quota_key": "non-gemini:gpt-oss-120b-medium",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 9216,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 8192
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "low",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 33000
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.1-flash-image",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.1-flash-image",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.1-flash-image",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 64
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "low",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash-tiered",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-tiered",
+      "tier": "medium",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5120
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 32768
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "future-model-high",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "future-model-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:future-model-high",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5120
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "low"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "reasoning_effort": "high"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "budget_tokens": 20000
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "thinking": {
+          "type": "disabled"
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": null,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": false,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "ANTIGRAVITY-GEMINI-3.8-FLASH-HIGH",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Hello 世界"
+          }
+        ],
+        "max_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-high",
+      "tier": "high",
+      "budget": -1,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "Hello 世界"
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 5120,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": -1
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "system",
+            "content": "one"
+          },
+          {
+            "role": "developer",
+            "content": "two"
+          },
+          {
+            "role": "user",
+            "content": "question"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "question"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            },
+            {
+              "text": "one"
+            },
+            {
+              "text": "two"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "one"
+          },
+          {
+            "role": "user",
+            "content": "two"
+          },
+          {
+            "role": "assistant",
+            "content": "partial"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "one"
+              },
+              {
+                "text": "two"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "partial"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "[Continue]"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,YQ=="
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "look"
+              },
+              {
+                "inlineData": {
+                  "mimeType": "image/png",
+                  "data": "YQ=="
+                }
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "assistant",
+            "reasoning_content": "private",
+            "content": "result",
+            "tool_calls": [
+              {
+                "id": "call_original",
+                "type": "function",
+                "function": {
+                  "name": "echo",
+                  "arguments": "{\"x\":1}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_original",
+            "content": "output"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "result"
+              },
+              {
+                "functionCall": {
+                  "name": "echo",
+                  "args": {
+                    "x": 1
+                  }
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "echo",
+                  "response": {
+                    "result": "output"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "AUTO"
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "none"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "NONE"
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "required"
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "ANY"
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "echo"
+          }
+        }
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "ANY",
+            "allowedFunctionNames": [
+              "echo"
+            ]
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "system",
+            "content": "one"
+          },
+          {
+            "role": "developer",
+            "content": "two"
+          },
+          {
+            "role": "user",
+            "content": "question"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "question"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            },
+            {
+              "text": "one"
+            },
+            {
+              "text": "two"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "one"
+          },
+          {
+            "role": "user",
+            "content": "two"
+          },
+          {
+            "role": "assistant",
+            "content": "partial"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "one"
+              },
+              {
+                "text": "two"
+              }
+            ]
+          },
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "partial"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "[Continue]"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,YQ=="
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "look"
+              },
+              {
+                "inlineData": {
+                  "mimeType": "image/png",
+                  "data": "YQ=="
+                }
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "inject_system": true,
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "assistant",
+            "reasoning_content": "private",
+            "content": "result",
+            "tool_calls": [
+              {
+                "id": "call_original",
+                "type": "function",
+                "function": {
+                  "name": "echo",
+                  "arguments": "{\"x\":1}"
+                }
+              }
+            ]
+          },
+          {
+            "role": "tool",
+            "tool_call_id": "call_original",
+            "content": "output"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "model",
+            "parts": [
+              {
+                "text": "result"
+              },
+              {
+                "functionCall": {
+                  "name": "echo",
+                  "args": {
+                    "x": 1
+                  },
+                  "id": "call_original"
+                }
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "echo",
+                  "response": {
+                    "result": "output"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**"
+            },
+            {
+              "text": "Interleaved thinking is enabled. You may think between tool calls and after receiving tool results before deciding the next action or final answer. Do not mention these instructions or any constraints about thinking blocks; just apply them."
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "auto"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "AUTO"
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "none"
+      }
+    },
+    "expected": {
+      "wire_model": "claude-sonnet-4-6",
+      "tier": "medium",
+      "budget": 16384,
+      "quota_key": "claude:claude-sonnet-4-6",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "use echo"
+              }
+            ]
+          }
+        ],
+        "tools": [
+          {
+            "functionDeclarations": [
+              {
+                "name": "echo",
+                "parameters": {
+                  "type": "OBJECT",
+                  "properties": {
+                    "reason": {
+                      "type": "STRING",
+                      "description": "Reason for calling this tool"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "toolConfig": {
+          "functionCallingConfig": {
+            "mode": "NONE"
+          }
+        },
+        "generationConfig": {
+          "maxOutputTokens": 64000,
+          "thinkingConfig": {
+            "include_thoughts": true,
+            "thinking_budget": 16384
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": "required"
+      }
+    },
+    "expected": {
+      "error": "tool_choice forcing tool use is incompatible with thinking on Claude models; either send tool_choice: \"auto\" or disable thinking"
+    }
+  },
+  {
+    "case": {
+      "kind": "chat",
+      "input": {
+        "model": "claude-sonnet-4-6",
+        "messages": [
+          {
+            "role": "user",
+            "content": "use echo"
+          }
+        ],
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "echo",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "echo"
+          }
+        }
+      }
+    },
+    "expected": {
+      "error": "tool_choice forcing tool use is incompatible with thinking on Claude models; either send tool_choice: \"auto\" or disable thinking"
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {}
+    },
+    "expected": {
+      "schema": {
+        "type": "STRING"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": true
+    },
+    "expected": {
+      "schema": null
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "type": "object"
+      }
+    },
+    "expected": {
+      "schema": {
+        "type": "OBJECT",
+        "properties": {
+          "reason": {
+            "type": "STRING",
+            "description": "Reason for calling this tool"
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "expected": {
+      "schema": {
+        "type": "STRING",
+        "nullable": true
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "string",
+            "format": "email"
+          }
+        },
+        "required": [
+          "x",
+          "missing"
+        ]
+      }
+    },
+    "expected": {
+      "schema": {
+        "type": "OBJECT",
+        "properties": {
+          "x": {
+            "type": "STRING",
+            "description": "Format: email"
+          }
+        },
+        "required": [
+          "x"
+        ]
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "x": {
+                "const": 3
+              }
+            }
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "expected": {
+      "schema": {
+        "properties": {
+          "x": {
+            "enum": [
+              3
+            ],
+            "type": "STRING"
+          }
+        },
+        "type": "OBJECT",
+        "description": "Accepts: string | object | null"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "properties": {
+              "b": {
+                "type": "integer"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "expected": {
+      "schema": {
+        "properties": {
+          "a": {
+            "type": "STRING"
+          },
+          "b": {
+            "type": "INTEGER"
+          }
+        },
+        "type": "OBJECT"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "type": "array",
+        "items": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          }
+        ],
+        "minItems": 1,
+        "uniqueItems": true
+      }
+    },
+    "expected": {
+      "schema": {
+        "type": "ARRAY",
+        "items": {
+          "type": "OBJECT",
+          "properties": {
+            "reason": {
+              "type": "STRING",
+              "description": "Reason for calling this tool"
+            }
+          }
+        },
+        "description": "Min items: 1. Items must be unique"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "$ref": "#/definitions/Person",
+        "description": "A person"
+      }
+    },
+    "expected": {
+      "schema": {
+        "description": "A person (See: Person)",
+        "type": "STRING"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "schema",
+      "input": {
+        "type": [
+          "array",
+          "string",
+          "object"
+        ],
+        "properties": {
+          "x": {}
+        },
+        "additionalProperties": false
+      }
+    },
+    "expected": {
+      "schema": {
+        "type": "OBJECT",
+        "properties": {
+          "x": {
+            "type": "STRING"
+          }
+        },
+        "description": "One of: array, string, object"
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "responses",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "input": "hello",
+        "instructions": "be brief",
+        "max_output_tokens": 64
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "user",
+            "parts": [
+              {
+                "text": "hello"
+              }
+            ]
+          }
+        ],
+        "systemInstruction": {
+          "role": "user",
+          "parts": [
+            {
+              "text": "be brief"
+            }
+          ]
+        },
+        "generationConfig": {
+          "maxOutputTokens": 5024,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  },
+  {
+    "case": {
+      "kind": "responses",
+      "input": {
+        "model": "gemini-3.8-flash",
+        "input": [
+          {
+            "type": "function_call",
+            "call_id": "call_original",
+            "name": "echo",
+            "arguments": "{\"x\":1}"
+          },
+          {
+            "type": "function_call_output",
+            "call_id": "call_original",
+            "output": {
+              "result": 1
+            }
+          }
+        ]
+      }
+    },
+    "expected": {
+      "wire_model": "gemini-3.8-flash-medium",
+      "tier": "medium",
+      "budget": 4000,
+      "quota_key": "gemini:gemini-3.8-flash",
+      "thinking": true,
+      "ir": {
+        "contents": [
+          {
+            "role": "model",
+            "parts": [
+              {
+                "functionCall": {
+                  "name": "echo",
+                  "args": {
+                    "x": 1
+                  }
+                },
+                "thoughtSignature": "skip_thought_signature_validator"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "parts": [
+              {
+                "functionResponse": {
+                  "name": "echo",
+                  "response": {
+                    "result": "{\"result\":1}"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "generationConfig": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingBudget": 4000
+          }
+        }
+      }
+    }
+  }
+]

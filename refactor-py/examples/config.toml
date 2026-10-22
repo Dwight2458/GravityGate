@@ -1,0 +1,51 @@
+[server]
+host = "127.0.0.1"
+port = 18081
+max_request_body_bytes = 16777216
+api_keys = []
+
+[upstream]
+endpoints = [
+    "https://daily-cloudcode-pa.googleapis.com",
+    "https://cloudcode-pa.googleapis.com",
+]
+connect_timeout_secs = 10
+read_timeout_secs = 180
+request_jitter_max_ms = 0
+inject_agent_system_prompt = false
+
+[accounts]
+strategy = "hybrid"
+cooldown_secs = 60
+max_consecutive_failures = 3
+soft_quota_threshold = 0.2
+quota_refresh_secs = 1800
+token_bucket_max = 10
+token_bucket_refill_per_min = 6
+
+[routing]
+max_wait_before_error_secs = 120
+max_account_attempts = 10
+max_capacity_retries = 5
+max_empty_response_retries = 2
+exhausted_error_mode = "too-many-requests"
+
+[reasoning]
+output_field = "reasoning_content"
+default_tier = "medium"
+
+[verification]
+enabled = true
+model = "gemini-3.8-flash-low"
+scan_interval_secs = 15
+timeout_secs = 60
+
+[audit]
+enabled = true
+retention_days = 30
+
+[metrics]
+enabled = true
+
+[logging]
+level = "info"

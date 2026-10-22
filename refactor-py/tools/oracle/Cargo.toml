@@ -1,0 +1,11 @@
+[package]
+name = "gravitygate-python-contract-oracle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+gravitygate = { path = "../../.." }
+serde_json = "1"
+
+[workspace]
